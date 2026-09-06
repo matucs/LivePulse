@@ -8,6 +8,13 @@ import { FootballDataProvider } from "../providers/FootballDataProvider.js";
 import { QuotaManager } from "../ingestion/quotaManager.js";
 import { PollingScheduler } from "../ingestion/scheduler.js";
 import type { IngestionDeps } from "../ingestion/ingestionService.js";
+import type { EventBus } from "../events/EventBus.js";
+import { KafkaEventBus } from "../events/KafkaEventBus.js";
+import { RedisStreamsEventBus } from "../events/RedisStreamsEventBus.js";
+import { startScoresConsumer } from "../events/consumers/scoresConsumer.js";
+import { startStatsConsumer } from "../events/consumers/statsConsumer.js";
+import { startAlertsConsumer } from "../events/consumers/alertsConsumer.js";
+import { startNotificationStubConsumer } from "../events/consumers/notificationStubConsumer.js";
 import { matchRoutes } from "./routes/matches.js";
 import { leagueRoutes } from "./routes/leagues.js";
 import { opsRoutes } from "./routes/ops.js";
@@ -30,10 +37,45 @@ await app.register(leagueRoutes);
 await app.register(opsRoutes);
 
 let scheduler: PollingScheduler | undefined;
+let eventBus: EventBus | undefined;
+
+/**
+ * docs/adr/ADR-003 — same transport-selection pattern as ADR-008 describes:
+ * identical topic/consumer-group design either way (docs/kafka.md), only
+ * the transport implementation differs. Undefined driver means events are
+ * simply not published — ingestion still writes Postgres/Redis directly
+ * (§22 graceful degradation), so this is never a hard dependency to start.
+ */
+async function buildEventBus(): Promise<EventBus | undefined> {
+  if (env.EVENT_BUS_DRIVER === "kafka") {
+    const bus = new KafkaEventBus({ brokers: env.KAFKA_BROKERS });
+    await bus.start();
+    return bus;
+  }
+  if (env.EVENT_BUS_DRIVER === "redis-streams") {
+    const bus = new RedisStreamsEventBus({ redisUrl: env.REDIS_URL });
+    await bus.start();
+    return bus;
+  }
+  logger.warn(
+    "EVENT_BUS_DRIVER not set — Kafka/Streams publishing disabled. Ingestion still writes PostgreSQL/Redis directly; only downstream fan-out and notifications are skipped. Set EVENT_BUS_DRIVER=kafka (local Docker Compose) or redis-streams (Portfolio Mode) to enable it.",
+  );
+  return undefined;
+}
 
 async function start(): Promise<void> {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
   logger.info({ port: env.PORT }, "LivePulse backend listening");
+
+  eventBus = await buildEventBus();
+  if (eventBus) {
+    // Consumer groups (docs/adr/ADR-003) — independently subscribed, so a
+    // slow/failing one can never block another from processing its topic.
+    await startScoresConsumer(eventBus, redis);
+    await startStatsConsumer(eventBus, redis);
+    await startAlertsConsumer(eventBus, redis);
+    await startNotificationStubConsumer(eventBus);
+  }
 
   if (env.API_FOOTBALL_KEY) {
     const quotaManager = new QuotaManager(redis);
@@ -62,7 +104,7 @@ async function start(): Promise<void> {
       );
     }
 
-    const deps: IngestionDeps = { provider, pool, redis, quotaManager, standingsProvider };
+    const deps: IngestionDeps = { provider, pool, redis, quotaManager, standingsProvider, eventBus };
     scheduler = new PollingScheduler(deps);
     scheduler.start();
   } else {
@@ -75,6 +117,7 @@ async function start(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "Shutting down");
   scheduler?.stop();
+  await eventBus?.stop();
   await app.close();
   await pool.end();
   redis.disconnect();

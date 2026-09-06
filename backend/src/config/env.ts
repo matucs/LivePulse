@@ -27,6 +27,17 @@ const schema = z.object({
   FOOTBALL_DATA_API_TOKEN: z.string().optional(),
   FOOTBALL_DATA_BASE_URL: z.string().default("https://api.football-data.org/v4"),
 
+  // docs/adr/ADR-003 — real Kafka locally/Production Mode, Redis Streams
+  // for the free Portfolio Mode deployment (docs/adr/ADR-008). Same topic/
+  // consumer-group design either way (docs/kafka.md); only the transport
+  // changes. Optional (undefined driver = events not published — ingestion
+  // still writes Postgres/Redis directly, §22 graceful degradation).
+  EVENT_BUS_DRIVER: z.enum(["kafka", "redis-streams"]).optional(),
+  KAFKA_BROKERS: z
+    .string()
+    .default("localhost:9092")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+
   // ADR-002 polling tiers, all overridable.
   LIVE_POLL_INTERVAL_MS: z.coerce.number().default(240_000), // 4 min
   PREMATCH_POLL_INTERVAL_MS: z.coerce.number().default(300_000), // 5 min

@@ -6,6 +6,8 @@ import type { MappedFixture, MatchStatus } from "../domain/types.js";
 import { ProviderQueryRejectedError } from "../providers/SportsDataProvider.js";
 import type { FootballDataProvider } from "../providers/FootballDataProvider.js";
 import { deriveSeasonId } from "../providers/mappers/fixtureMapper.js";
+import type { EventBus } from "../events/EventBus.js";
+import { buildDomainEvents } from "../events/domainEvents.js";
 import { detectChanges, synthesizeStatusEvent, type PreviousMatchState } from "./changeDetector.js";
 import { QuotaManager, type PollCategory } from "./quotaManager.js";
 import { upsertLeague, ensureSeason } from "../db/repositories/leagueRepository.js";
@@ -38,6 +40,15 @@ export interface IngestionDeps {
    * standings are honestly not polled, not silently faked.
    */
   standingsProvider?: FootballDataProvider;
+  /**
+   * docs/adr/ADR-003 — Phase 4. Optional, same graceful-degradation
+   * principle as everywhere else in this file: if unset (or a publish
+   * fails), ingestion's Postgres/Redis write already fully succeeded
+   * before this is even attempted (see ingestFixture below), so a Kafka
+   * outage degrades the product (no downstream fan-out/notifications),
+   * it does not break ingestion (§22).
+   */
+  eventBus?: EventBus;
 }
 
 export interface PollResult {
@@ -168,14 +179,23 @@ export async function pollStandings(
  * One polled fixture, end to end: read previous state (Redis, then
  * Postgres fallback — cache-aside, ADR-004) → detect what actually changed
  * (docs/change-detection.md) → durable write in one transaction (ADR-005)
- * → update live Redis state. Returns whether anything actually changed.
+ * → update live Redis state → publish domain events (ADR-003, Phase 4).
+ * Returns whether anything actually changed.
  *
- * No Kafka publish here yet — Phase 3 is "Real API → Ingestion →
- * PostgreSQL → Redis → Next.js" per the project's own phase gating
- * (README). Domain event publishing is added in Phase 4 (ADR-003) as a
- * step appended here, not a rewrite of this function.
+ * Phase 4 addendum to ADR-003's original design: ingestion still writes
+ * Redis directly here (not via a consumer round-trip) — that part of
+ * ingestion.md's original "ingestion's job ends at durable write + event
+ * published" framing turned out to be a diagram simplification, not
+ * literally how the code should work, once real code existed to write
+ * against. Kafka's actual job, once built, is decoupling the reactions to
+ * a change (WebSocket fan-out, notification decisions — events/consumers/)
+ * from ingestion, not re-deriving state ingestion already has correctly
+ * and immediately. See docs/adr/ADR-003's Phase 4 addendum.
  */
-export async function ingestFixture(deps: Pick<IngestionDeps, "pool" | "redis">, mapped: MappedFixture): Promise<boolean> {
+export async function ingestFixture(
+  deps: Pick<IngestionDeps, "pool" | "redis" | "eventBus">,
+  mapped: MappedFixture,
+): Promise<boolean> {
   const cached = await getLiveMatchState(deps.redis, mapped.match.id);
   let previous: PreviousMatchState | null = cached;
   if (!previous) {
@@ -236,6 +256,21 @@ export async function ingestFixture(deps: Pick<IngestionDeps, "pool" | "redis">,
     await deps.redis.srem(cacheKeys.leagueLive(mapped.league.id), mapped.match.id);
     if (mapped.match.status === "finished") {
       await expireLiveMatchState(deps.redis, mapped.match.id);
+    }
+  }
+
+  if (deps.eventBus) {
+    const events = buildDomainEvents(mapped, previous, changes, synthetic);
+    for (const event of events) {
+      try {
+        await deps.eventBus.publish(event.topic, event.key, event.payload, event.eventType);
+      } catch (err) {
+        // docs/ingestion.md's failure table: Postgres + Redis already
+        // committed above — a broker outage degrades the event-driven
+        // reactions (fan-out, notifications), it must never roll back or
+        // block the durable write that already succeeded.
+        logger.error({ err, topic: event.topic, matchId: mapped.match.id }, "Failed to publish domain event — durable write already succeeded, continuing");
+      }
     }
   }
 

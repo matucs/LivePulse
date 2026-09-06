@@ -54,12 +54,20 @@ in the schema since ingestion latency is itself a metric worth tracking,
 
 ## Consumer groups
 
-See [ADR-003](adr/ADR-003-kafka-architecture.md#consumer-groups) for the
-full table. Group IDs used in code/config:
+See [ADR-003](adr/ADR-003-kafka-architecture.md#consumer-groups) and its
+[Phase 4 addendum](adr/ADR-003-kafka-architecture.md#addendum-2026-09-06-phase-4-what-kafkas-consumers-actually-do-once-real-code-existed)
+for what each one actually does once built. Group IDs used in code/config
+(`src/events/topics.ts`'s `ConsumerGroups`):
 
-- `scores-consumer-group`
-- `stats-consumer-group`
-- `alerts-consumer-group`
+- `scores-consumer-group` — `sports.match.score-changed`,
+  `sports.match.status-changed` → Redis pub/sub fan-out (`ws:match:{id}`)
+  for the Phase 5 WebSocket gateway.
+- `stats-consumer-group` — `sports.statistics.updated` → same fan-out.
+- `alerts-consumer-group` — `sports.match.event-created` → fan-out for the
+  live timeline, *and* notification-worthiness decisions → produces to
+  `sports.notification.requested`.
+- `notification-stub-consumer-group` — `sports.notification.requested` →
+  logs only (§29's seam for a future dispatcher, not built yet).
 
 Each is independently deployable and independently restartable; offsets are
 tracked per group, so restarting one never affects another's position.

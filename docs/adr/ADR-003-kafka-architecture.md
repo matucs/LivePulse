@@ -128,3 +128,50 @@ design above is identical either way; only the transport changes.
   sufficient for portfolio-scale throughput and is documented as a
   Portfolio Mode-only substitution, never described as "Kafka" in anything
   user-facing.
+
+## Addendum (2026-09-06, Phase 4): what Kafka's consumers actually do, once real code existed
+
+The original design above (and docs/ingestion.md, written in Phase 2)
+described ingestion's job as ending at "durable write + event published,"
+with Redis live-state updates happening downstream in the consumers. Once
+Phase 4 actually built the consumers, that framing turned out to be a
+diagram-level simplification rather than the right implementation:
+
+- `ingestFixture` (ingestionService.ts) still writes Redis directly,
+  synchronously, in the same call that writes Postgres — unchanged from
+  Phase 3. Moving that to a consumer would mean the fast, cache-aside read
+  path (ADR-004) is *only* correct after a Kafka round-trip completes,
+  which is strictly worse (an extra failure mode and an extra hop of
+  latency) for something ingestion can already do correctly and immediately
+  after mapping the provider's response.
+- What the consumers actually do, once built: **`scores-consumer-group`**
+  and **`stats-consumer-group`** publish to the Redis pub/sub channel
+  `ws:match:{id}` (`cache.keys.wsMatchChannel`) — the fan-out signal the
+  Phase 5 WebSocket gateway will subscribe to (ADR-006). **`alerts-
+  consumer-group`** does two things with `sports.match.event-created`: the
+  same `ws:match:{id}` fan-out (`match:event`, for the live timeline —
+  the original design didn't assign anyone this job, a real gap closed
+  here rather than adding a fourth consumer group for one topic) and
+  deciding notification-worthiness, producing to
+  `sports.notification.requested` as designed. A **stub consumer**
+  completes the loop by actually consuming that topic (logging only) —
+  proving the seam is real and consumable, not just declared.
+- This is still exactly the property §10 and this ADR's introduction claim:
+  scores, stats, and alerts processing are independent, and Kafka decouples
+  "detecting a change" from "reacting to it." What changed is *which*
+  reactions live in the consumers — the WebSocket fan-out and notification
+  decision, not a redundant re-derivation of state ingestion already has.
+
+Verified against real data (not synthetic): a live poll tick with 48 real
+match changes produced 48 `sports.match.updated`, 34
+`sports.match.score-changed`, 28 `sports.match.status-changed`, and 2
+`sports.match.event-created` messages; `alerts-consumer-group`'s consumer
+lag was 0 on both real events, confirming actual consumption, not just
+messages accumulating unread. `sports.statistics.updated` stayed at 0
+messages in this run — expected, not a bug: `/fixtures?live=all` (the
+batched live-polling endpoint, ADR-002) doesn't include per-team
+statistics in its response at all, only `getMatch()`'s single-fixture path
+does, and nothing currently calls that on a recurring cadence for live
+matches. This is a pre-existing ingestion-scope gap from Phase 3, not one
+introduced by or in scope for Phase 4's event bus work — noted here rather
+than silently left unexplained by an event topic that never fires.

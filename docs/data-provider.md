@@ -70,3 +70,16 @@ The only concrete implementation today. Responsibilities:
    secondary source the ingestion service calls for specific fields.
 4. Nothing in Kafka topics, Postgres schema, Redis keys, or the frontend
    needs to change — that's the point of ADR-007.
+
+### `FootballDataProvider` — a real example of exactly this
+
+Added after real-key validation showed API-Football's free tier can't
+supply current-season standings at all (ADR-002 addendum). It does **not**
+implement the full `SportsDataProvider` interface above — it was never a
+live-match candidate (no live data on its free tier, ADR-001) — it's a
+narrower, separate provider with one method (`getStandings`), used only by
+the standings polling tier. See the
+[ADR-007 addendum](adr/ADR-007-provider-abstraction.md#addendum-2026-09-06-a-second-provider-added--and-why-this-isnt-the-per-field-fallback-this-adr-said-it-wouldnt-build)
+for the identity-reconciliation problem this raised (football-data.org's
+team/league ids have no relationship to API-Football's) and how it's
+solved — by name, not by id — in `domain/teamNameMatch.ts`.

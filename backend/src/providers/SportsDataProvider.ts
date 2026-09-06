@@ -1,4 +1,4 @@
-import type { MappedFixture, Standing } from "../domain/types.js";
+import type { MappedFixture } from "../domain/types.js";
 import { NonRetryableError } from "../utils/retry.js";
 
 /**
@@ -34,7 +34,11 @@ export interface SportsDataProvider {
 
   getMatch(externalId: string): Promise<MappedFixture>;
 
-  getStandings(leagueExternalId: string, seasonYear: number): Promise<Standing[]>;
+  // No getStandings() — API-Football's free tier rejects every
+  // current-season standings query outright (ADR-002 addendum), so it's
+  // not part of this interface's contract. Standings come from
+  // FootballDataProvider instead (ADR-007 addendum), a distinct, narrower
+  // provider — not a SportsDataProvider implementation.
 }
 
 /** Carried alongside a provider response so the Quota Manager (ADR-002) can record it. */

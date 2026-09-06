@@ -1,13 +1,12 @@
-import type { MappedFixture, Standing } from "../domain/types.js";
+import type { MappedFixture } from "../domain/types.js";
 import { ProviderQueryRejectedError, type ProviderResponse, type RateLimitInfo, type SportsDataProvider } from "./SportsDataProvider.js";
 import type {
   ApiFootballBaseResponse,
   ApiFootballEventsResponse,
   ApiFootballFixturesResponse,
-  ApiFootballStandingsResponse,
   ApiFootballStatisticsResponse,
 } from "./mappers/apiFootballTypes.js";
-import { mapFixture, mapStandings, deriveSeasonId } from "./mappers/fixtureMapper.js";
+import { mapFixture } from "./mappers/fixtureMapper.js";
 import { CircuitBreaker, NonRetryableError, withRetry } from "../utils/retry.js";
 import { logger } from "../utils/logger.js";
 
@@ -139,16 +138,9 @@ export class ApiFootballProvider implements SportsDataProvider {
     return mapFixture(fixture, events, statistics);
   }
 
-  async getStandings(leagueExternalId: string, seasonYear: number): Promise<Standing[]> {
-    const { data } = await this.request<ApiFootballStandingsResponse>(
-      `/standings?league=${leagueExternalId}&season=${seasonYear}`,
-    );
-    const league = data.response[0]?.league;
-    if (!league) return [];
-    const seasonId = deriveSeasonId(leagueExternalId, seasonYear);
-    // API-Football nests standings as an array of groups (e.g. regular
-    // season vs. relegation group) — flattened here since LivePulse doesn't
-    // model sub-groups yet (documented simplification, not a bug).
-    return league.standings.flat().map((row) => mapStandings(seasonId, [row])[0]!);
-  }
+  // No getStandings() here (removed from SportsDataProvider too) — every
+  // season-scoped query, standings included, is rejected outright on the
+  // free tier (ADR-002 addendum). FootballDataProvider supplies standings
+  // instead (ADR-007 addendum); keeping a method here that can never
+  // succeed would be dead, misleading surface area.
 }

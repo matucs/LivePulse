@@ -169,19 +169,21 @@ Two things followed from this, one a bug fix and one a design consequence:
    attempt without retrying at all, which erased the original error's type
    for exactly this kind of `instanceof` check — fixed to propagate a
    `NonRetryableError` as itself.
-2. **A design consequence, not yet fixed**: the "upcoming matches" and
-   "standings" sections of the product (§3) cannot be populated with real
-   current-season data from API-Football's free tier at all — no polling
-   interval or budget reallocation changes this, since every request shape
-   that would supply it is rejected outright. This is exactly the scenario
-   ADR-007's provider abstraction was built for: a second provider (the
-   ADR-001 research already flagged football-data.org as free-tier-viable
-   for exactly this — current-season fixtures and standings for major
-   competitions, no live scores needed from it) is the real fix, added as a
-   `SportsDataProvider` implementation used only for these two data types
-   while API-Football remains authoritative for live matches. Not yet
-   implemented — tracked as the next real increment on this project, not
-   silently worked around by, say, quietly serving 2022-2024 data as if
-   current (which would violate §1's "use real data" requirement in a worse
-   way than an honestly-empty section would).
+2. **A design consequence, since fixed for standings, still open for
+   upcoming fixtures**: neither the "upcoming matches" nor the "standings"
+   section of the product (§3) can be populated with real current-season
+   data from API-Football's free tier — no polling interval or budget
+   reallocation changes this, since every request shape that would supply
+   it is rejected outright. This is exactly the scenario ADR-007's provider
+   abstraction was built for. **Standings**: `FootballDataProvider` (ADR-007
+   addendum) now supplies them — the ADR-001 research had already flagged
+   football-data.org as free-tier-viable for exactly this. **Upcoming
+   fixtures**: deliberately not fixed the same way yet — unlike standings,
+   an upcoming fixture ingested from a second provider would need to become
+   the *same* `matches` row that API-Football later creates once it goes
+   live (a real cross-provider match-identity reconciliation problem, not
+   just a team-name lookup), and a wrong guess there risks a duplicate or
+   orphaned match rather than a merely-missing one. Left honestly empty
+   until that's designed properly, rather than risking silently-wrong data
+   for the sake of filling the section.
 

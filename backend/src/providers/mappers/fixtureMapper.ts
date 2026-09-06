@@ -80,6 +80,16 @@ export function mapPlayersFromEvents(raw: ApiFootballEvent[]): Player[] {
   return [...byExternalId.values()];
 }
 
+/**
+ * Not called by ApiFootballProvider's current public surface — its
+ * getStandings() was removed after real-key validation showed the free
+ * tier rejects it for any current season (ADR-002 addendum). Kept here,
+ * tested, because it's still correct for API-Football's own free-tier
+ * historical window (2022-2024, confirmed by direct testing) — a
+ * plausible future "browse a past season" feature would want exactly this,
+ * without re-deriving the mapping from scratch. FootballDataProvider
+ * (ADR-007 addendum) is what actually supplies current-season standings.
+ */
 export function mapStandings(seasonId: string, raw: ApiFootballStandingRow[]): Standing[] {
   return raw.map((row) => ({
     seasonId,

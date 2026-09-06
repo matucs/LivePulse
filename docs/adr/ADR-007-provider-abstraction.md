@@ -85,3 +85,43 @@ ingestion, change detection, Kafka, or the frontend.
   a future provider models something fundamentally differently, the
   interface may need to grow — accepted, since designing further ahead of
   a second real implementation would be speculation, not abstraction.
+
+## Addendum (2026-09-06): a second provider, added — and why this isn't the per-field fallback this ADR said it wouldn't build
+
+Real-key validation (ADR-002 addendum) found that API-Football's free tier
+cannot supply current-season standings at all. `FootballDataProvider` was
+added to fill exactly that gap — worth being precise about why this is
+different from the "no per-field fallback" stance above, not a quiet
+reversal of it:
+
+- **What was ruled out**: mixing providers *within one entity* — e.g. a
+  `Match`'s score from API-Football but its statistics from a different
+  provider. That's still not built, and still isn't needed.
+- **What was actually added**: a *different entity* (`Standing`) sourced
+  entirely from a different provider. `FootballDataProvider` is not a
+  `SportsDataProvider` implementation — it doesn't implement
+  `getLiveMatches`/`getMatch`/`getFixturesByLeague` at all, because it was
+  never a candidate to replace API-Football (ADR-001: no live data on its
+  free tier). It's a narrower, separate interface with exactly one method,
+  used only by the standings polling tier.
+- **The real complexity this surfaced** wasn't the interface — it was
+  identity. `Standing` rows must attach to the exact `teams`/`seasons` rows
+  API-Football's match ingestion already created, and football-data.org has
+  no relationship to API-Football's ids for the same real-world clubs. The
+  fix (`domain/teamNameMatch.ts`) resolves this by normalized-name matching,
+  scoped to teams known to have played in the relevant league, and *skips*
+  (logs, doesn't guess) a team it can't confidently reconcile — e.g. it
+  cannot currently bridge a translated name like football-data.org's "FC
+  Bayern München" against API-Football's "Bayern Munich". The correct
+  long-term fix is a schema-level canonical team-identity table with
+  per-provider aliases; not built now because it's a real migration
+  (ADR-005) for a problem that, today, affects a handful of clubs across six
+  tracked leagues — a reasonable scope line, not an oversight.
+- **Upcoming fixtures were deliberately left out of this fix.** Unlike a
+  `Standing` (which just needs a `(season_id, team_id)` pair), an upcoming
+  fixture ingested from a second provider would need to become the *same*
+  `matches` row API-Football later creates once it kicks off — a real
+  cross-provider match-identity problem, harder than team-name matching and
+  with a worse failure mode (a wrong guess creates a duplicate or orphaned
+  match, not just a missing standings row). Left honestly unfixed rather
+  than rushed.

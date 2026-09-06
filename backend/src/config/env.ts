@@ -19,6 +19,14 @@ const schema = z.object({
   API_FOOTBALL_KEY: z.string().optional(),
   API_FOOTBALL_BASE_URL: z.string().default("https://v3.football.api-sports.io"),
 
+  // docs/adr/ADR-002 addendum + docs/adr/ADR-007 addendum: API-Football's
+  // free tier can't supply current-season standings at all, so a second
+  // provider supplies standings specifically. Optional — if unset,
+  // standings are simply not polled (honestly empty, never faked) rather
+  // than falling back to API-Football's known-broken path.
+  FOOTBALL_DATA_API_TOKEN: z.string().optional(),
+  FOOTBALL_DATA_BASE_URL: z.string().default("https://api.football-data.org/v4"),
+
   // ADR-002 polling tiers, all overridable.
   LIVE_POLL_INTERVAL_MS: z.coerce.number().default(240_000), // 4 min
   PREMATCH_POLL_INTERVAL_MS: z.coerce.number().default(300_000), // 5 min

@@ -4,6 +4,7 @@ import { logger } from "../utils/logger.js";
 import { pool } from "../db/client.js";
 import { redis } from "../cache/redisClient.js";
 import { ApiFootballProvider } from "../providers/ApiFootballProvider.js";
+import { FootballDataProvider } from "../providers/FootballDataProvider.js";
 import { QuotaManager } from "../ingestion/quotaManager.js";
 import { PollingScheduler } from "../ingestion/scheduler.js";
 import type { IngestionDeps } from "../ingestion/ingestionService.js";
@@ -43,7 +44,25 @@ async function start(): Promise<void> {
         void quotaManager.recordResult(info, "success");
       },
     });
-    const deps: IngestionDeps = { provider, pool, redis, quotaManager };
+
+    // docs/adr/ADR-007 addendum: standings come from a second, narrower
+    // provider — API-Football's free tier can't supply current-season
+    // standings at all (ADR-002 addendum). Optional: without a token,
+    // standings are honestly not polled rather than silently faked.
+    let standingsProvider: FootballDataProvider | undefined;
+    if (env.FOOTBALL_DATA_API_TOKEN) {
+      standingsProvider = new FootballDataProvider({
+        apiToken: env.FOOTBALL_DATA_API_TOKEN,
+        baseUrl: env.FOOTBALL_DATA_BASE_URL,
+        onRateLimit: () => {}, // separate quota surface from API-Football's — not yet on the ops dashboard, see docs/adr/ADR-002 addendum
+      });
+    } else {
+      logger.warn(
+        "FOOTBALL_DATA_API_TOKEN not set — standings will not be polled (API-Football's free tier can't supply current-season standings; see docs/adr/ADR-002 addendum). Set FOOTBALL_DATA_API_TOKEN in .env to enable it.",
+      );
+    }
+
+    const deps: IngestionDeps = { provider, pool, redis, quotaManager, standingsProvider };
     scheduler = new PollingScheduler(deps);
     scheduler.start();
   } else {

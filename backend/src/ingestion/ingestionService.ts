@@ -4,10 +4,13 @@ import { withTransaction } from "../db/client.js";
 import type { SportsDataProvider } from "../providers/SportsDataProvider.js";
 import type { MappedFixture, MatchStatus } from "../domain/types.js";
 import { ProviderQueryRejectedError } from "../providers/SportsDataProvider.js";
+import type { FootballDataProvider } from "../providers/FootballDataProvider.js";
+import { deriveId } from "../domain/deriveId.js";
+import { PROVIDER_CODE, deriveSeasonId } from "../providers/mappers/fixtureMapper.js";
 import { detectChanges, synthesizeStatusEvent, type PreviousMatchState } from "./changeDetector.js";
 import { QuotaManager, type PollCategory } from "./quotaManager.js";
 import { upsertLeague, ensureSeason } from "../db/repositories/leagueRepository.js";
-import { upsertTeam } from "../db/repositories/teamRepository.js";
+import { upsertTeam, getTeamsPlayedInLeague } from "../db/repositories/teamRepository.js";
 import { upsertPlayerStub } from "../db/repositories/playerRepository.js";
 import {
   getMatchById,
@@ -28,6 +31,14 @@ export interface IngestionDeps {
   pool: QueryClient;
   redis: Redis;
   quotaManager: QuotaManager;
+  /**
+   * docs/adr/ADR-007 addendum: API-Football's free tier can't supply
+   * current-season standings at all (ADR-002 addendum), so this is a
+   * distinct, optional, narrower provider used only for that one data
+   * type — never a full SportsDataProvider substitute. Undefined means
+   * standings are honestly not polled, not silently faked.
+   */
+  standingsProvider?: FootballDataProvider;
 }
 
 export interface PollResult {
@@ -96,11 +107,25 @@ export function pollUpcomingFixtures(
   );
 }
 
+/**
+ * Standings come from a *different* provider than matches (ADR-002/007
+ * addenda) — API-Football's free tier can't supply current-season
+ * standings at all. `deps.standingsProvider` (football-data.org) is
+ * resolved by API-Football's own league identity (`leagueId`, `seasonId`),
+ * never football-data.org's own ids, and its teams are reconciled by name
+ * against teams API-Football's match ingestion already created for this
+ * league (domain/teamNameMatch.ts) — that's why this needs `deps.pool`
+ * ahead of the fetch, not just after it.
+ */
 export async function pollStandings(
   deps: IngestionDeps,
   leagueExternalId: string,
   seasonYear: number,
 ): Promise<{ skipped: boolean; reason?: string }> {
+  if (!deps.standingsProvider) {
+    return { skipped: true, reason: "no standings provider configured (FOOTBALL_DATA_API_TOKEN unset)" };
+  }
+
   const check = await deps.quotaManager.canPoll("standings");
   if (!check.allowed) {
     logger.info({ reason: check.reason }, "Skipping standings poll — quota not available");
@@ -108,9 +133,13 @@ export async function pollStandings(
   }
   await deps.quotaManager.recordAttempt("standings");
 
+  const leagueId = deriveId(PROVIDER_CODE, "league", leagueExternalId);
+  const seasonId = deriveSeasonId(leagueExternalId, seasonYear);
+
   let standings;
   try {
-    standings = await deps.provider.getStandings(leagueExternalId, seasonYear);
+    const candidates = await getTeamsPlayedInLeague(deps.pool, leagueId);
+    standings = await deps.standingsProvider.getStandings(leagueExternalId, seasonId, candidates);
   } catch (err) {
     if (err instanceof ProviderQueryRejectedError) {
       logger.warn({ reasons: err.reasons }, "Provider rejected standings query for this plan — skipping tier");

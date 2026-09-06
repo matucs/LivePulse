@@ -193,6 +193,41 @@ real at the database level, not just at the TypeScript interface level —
 swapping providers means a new `data_providers` row and new external IDs,
 never a schema change.
 
+### Implementation note added in Phase 3: deterministic ids, not `gen_random_uuid()`, for provider-sourced entities
+
+The actual migration (`backend/src/db/migrations/1.init-schema.sql`) deviates
+from the SQL above in one specific way: `leagues`, `seasons`, `teams`,
+`players`, and `matches` do **not** default their `id` to
+`gen_random_uuid()`. Instead, the application computes
+`id = UUIDv5(namespace, "<providerCode>:<entityKind>:<externalId>")`
+(`backend/src/domain/deriveId.ts`) and inserts it explicitly. `match_events`,
+`match_statistics`, and `standings` — which aren't independently
+provider-sourced entities, just data attached to a match/season — keep
+`DEFAULT gen_random_uuid()` as originally designed.
+
+This was discovered during implementation, not anticipated at design time,
+so it's recorded here rather than silently diverging from what's written
+above:
+
+- It makes the provider mapper (`providers/mappers/*`) a **pure function**
+  — given the same provider JSON, it always produces the same internal ids,
+  with no database round-trip needed to know a team's or match's internal
+  id before referencing it from something else being mapped in the same
+  response. That's what makes the mapper unit-testable against fixtures
+  alone (`test/unit/providers/`), with no test database required for that
+  layer.
+- Upserts become a single `INSERT ... ON CONFLICT (id) DO UPDATE` instead of
+  a two-step "look up by external_id, then insert-or-update by internal id."
+- The `UNIQUE (provider_id, external_id)` constraint is kept anyway, as a
+  safety net — if the derivation ever collided or changed, the constraint
+  still surfaces it as a loud insert conflict rather than a silent duplicate
+  row.
+
+This doesn't change anything else in this ADR: FKs, constraints, and the
+provider-independence argument all hold exactly as written, since
+`(provider_id, external_id)` is still the source of truth for what a row
+*is* — the id is just computed from it instead of generated randomly.
+
 ## Consequences
 
 **Positive**

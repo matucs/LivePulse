@@ -1,0 +1,129 @@
+import type { MappedFixture, Standing } from "../domain/types.js";
+import type { ProviderResponse, RateLimitInfo, SportsDataProvider } from "./SportsDataProvider.js";
+import type {
+  ApiFootballEventsResponse,
+  ApiFootballFixturesResponse,
+  ApiFootballStandingsResponse,
+  ApiFootballStatisticsResponse,
+} from "./mappers/apiFootballTypes.js";
+import { mapFixture, mapStandings, deriveSeasonId } from "./mappers/fixtureMapper.js";
+import { CircuitBreaker, NonRetryableError, withRetry } from "../utils/retry.js";
+import { logger } from "../utils/logger.js";
+
+export interface ApiFootballProviderOptions {
+  apiKey: string;
+  baseUrl: string;
+  /** Called after every response (success or failure) with whatever rate-limit info was present. */
+  onRateLimit?: (info: RateLimitInfo) => void;
+  timeoutMs?: number;
+}
+
+function parseRateLimitHeaders(headers: Headers): RateLimitInfo {
+  const num = (name: string): number | undefined => {
+    const v = headers.get(name);
+    return v !== null ? Number(v) : undefined;
+  };
+  return {
+    dailyLimit: num("x-ratelimit-requests-limit"),
+    dailyRemaining: num("x-ratelimit-requests-remaining"),
+    minuteLimit: num("x-ratelimit-limit"),
+    minuteRemaining: num("x-ratelimit-remaining"),
+  };
+}
+
+/**
+ * docs/adr/ADR-007 — the only class in the codebase allowed to know
+ * API-Football's URLs, headers, and JSON shapes. Everything it returns is
+ * already mapped to the internal domain model (docs/data-provider.md).
+ */
+export class ApiFootballProvider implements SportsDataProvider {
+  private readonly breaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 5 * 60_000 });
+
+  constructor(private readonly opts: ApiFootballProviderOptions) {}
+
+  private async request<T>(path: string): Promise<ProviderResponse<T>> {
+    if (!this.breaker.canProceed()) {
+      throw new Error(`Circuit breaker open for API-Football — skipping request to ${path}`);
+    }
+
+    return withRetry(
+      async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 8000);
+        try {
+          const res = await fetch(`${this.opts.baseUrl}${path}`, {
+            headers: { "x-apisports-key": this.opts.apiKey },
+            signal: controller.signal,
+          });
+          const rateLimit = parseRateLimitHeaders(res.headers);
+          this.opts.onRateLimit?.(rateLimit);
+
+          if (res.status === 429) {
+            this.breaker.onFailure();
+            throw new NonRetryableError(`API-Football rate limit hit (429) on ${path}`);
+          }
+          if (!res.ok) {
+            throw new Error(`API-Football request failed: ${res.status} ${res.statusText} on ${path}`);
+          }
+
+          const data = (await res.json()) as T;
+          this.breaker.onSuccess();
+          return { data, rateLimit };
+        } finally {
+          clearTimeout(timeout);
+        }
+      },
+      {
+        maxAttempts: 3,
+        baseDelayMs: 2000,
+        onRetry: (attempt, err) => {
+          this.breaker.onFailure();
+          logger.warn({ attempt, path, err: String(err) }, "Retrying API-Football request");
+        },
+      },
+    );
+  }
+
+  /** GET /fixtures?live=all — every live match worldwide, one request regardless of count (ADR-002). */
+  async getLiveMatches(): Promise<MappedFixture[]> {
+    const { data } = await this.request<ApiFootballFixturesResponse>("/fixtures?live=all");
+    return data.response.map((f) => mapFixture(f));
+  }
+
+  async getFixturesByLeague(leagueExternalId: string, from: Date, to: Date): Promise<MappedFixture[]> {
+    const fromStr = from.toISOString().slice(0, 10);
+    const toStr = to.toISOString().slice(0, 10);
+    const { data } = await this.request<ApiFootballFixturesResponse>(
+      `/fixtures?league=${leagueExternalId}&from=${fromStr}&to=${toStr}`,
+    );
+    return data.response.map((f) => mapFixture(f));
+  }
+
+  async getMatch(externalId: string): Promise<MappedFixture> {
+    const [{ data: fixtureData }, events, statistics] = await Promise.all([
+      this.request<ApiFootballFixturesResponse>(`/fixtures?id=${externalId}`),
+      this.request<ApiFootballEventsResponse>(`/fixtures/events?fixture=${externalId}`).then((r) => r.data.response),
+      this.request<ApiFootballStatisticsResponse>(`/fixtures/statistics?fixture=${externalId}`).then(
+        (r) => r.data.response,
+      ),
+    ]);
+    const fixture = fixtureData.response[0];
+    if (!fixture) {
+      throw new Error(`No fixture found for external id ${externalId}`);
+    }
+    return mapFixture(fixture, events, statistics);
+  }
+
+  async getStandings(leagueExternalId: string, seasonYear: number): Promise<Standing[]> {
+    const { data } = await this.request<ApiFootballStandingsResponse>(
+      `/standings?league=${leagueExternalId}&season=${seasonYear}`,
+    );
+    const league = data.response[0]?.league;
+    if (!league) return [];
+    const seasonId = deriveSeasonId(leagueExternalId, seasonYear);
+    // API-Football nests standings as an array of groups (e.g. regular
+    // season vs. relegation group) — flattened here since LivePulse doesn't
+    // model sub-groups yet (documented simplification, not a bug).
+    return league.standings.flat().map((row) => mapStandings(seasonId, [row])[0]!);
+  }
+}

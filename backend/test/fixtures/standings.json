@@ -1,0 +1,29 @@
+{
+  "response": [
+    {
+      "league": {
+        "id": 128,
+        "standings": [
+          [
+            {
+              "rank": 1,
+              "team": { "id": 442, "name": "Defensa Y Justicia", "logo": "https://media.api-sports.io/football/teams/442.png" },
+              "points": 28,
+              "goalsDiff": 14,
+              "form": "WWDWL",
+              "all": { "played": 12, "win": 9, "draw": 1, "lose": 2, "goals": { "for": 24, "against": 10 } }
+            },
+            {
+              "rank": 2,
+              "team": { "id": 463, "name": "Aldosivi", "logo": "https://media.api-sports.io/football/teams/463.png" },
+              "points": 22,
+              "goalsDiff": 3,
+              "form": "LWDWW",
+              "all": { "played": 12, "win": 6, "draw": 4, "lose": 2, "goals": { "for": 18, "against": 15 } }
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

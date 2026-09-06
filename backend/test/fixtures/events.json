@@ -1,0 +1,38 @@
+[
+  {
+    "time": { "elapsed": 25, "extra": null },
+    "team": { "id": 463, "name": "Aldosivi", "logo": "https://media.api-sports.io/football/teams/463.png" },
+    "player": { "id": 6126, "name": "F. Andrada" },
+    "assist": { "id": null, "name": null },
+    "type": "Goal",
+    "detail": "Normal Goal",
+    "comments": null
+  },
+  {
+    "time": { "elapsed": 33, "extra": null },
+    "team": { "id": 442, "name": "Defensa Y Justicia", "logo": "https://media.api-sports.io/football/teams/442.png" },
+    "player": { "id": 5936, "name": "Julio Gonzalez" },
+    "assist": { "id": null, "name": null },
+    "type": "Card",
+    "detail": "Yellow Card",
+    "comments": null
+  },
+  {
+    "time": { "elapsed": 51, "extra": null },
+    "team": { "id": 442, "name": "Defensa Y Justicia", "logo": "https://media.api-sports.io/football/teams/442.png" },
+    "player": { "id": 5940, "name": "N. Fernandez" },
+    "assist": { "id": 5941, "name": "R. Merentiel" },
+    "type": "Goal",
+    "detail": "Normal Goal",
+    "comments": null
+  },
+  {
+    "time": { "elapsed": 72, "extra": null },
+    "team": { "id": 442, "name": "Defensa Y Justicia", "logo": "https://media.api-sports.io/football/teams/442.png" },
+    "player": { "id": 5942, "name": "A. Bareiro" },
+    "assist": { "id": null, "name": null },
+    "type": "Goal",
+    "detail": "Normal Goal",
+    "comments": null
+  }
+]

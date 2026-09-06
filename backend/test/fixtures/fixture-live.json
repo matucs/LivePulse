@@ -1,0 +1,22 @@
+{
+  "fixture": {
+    "id": 215662,
+    "date": "2026-09-06T19:00:00+00:00",
+    "timestamp": 1789412400,
+    "venue": { "id": 556, "name": "Estadio Norberto Tomaghello", "city": "Buenos Aires" },
+    "status": { "long": "Second Half", "short": "2H", "elapsed": 72 }
+  },
+  "league": {
+    "id": 128,
+    "name": "Superliga",
+    "country": "Argentina",
+    "logo": "https://media.api-sports.io/football/leagues/128.png",
+    "season": 2026,
+    "round": "Regular Season - 12"
+  },
+  "teams": {
+    "home": { "id": 442, "name": "Defensa Y Justicia", "logo": "https://media.api-sports.io/football/teams/442.png", "winner": null },
+    "away": { "id": 463, "name": "Aldosivi", "logo": "https://media.api-sports.io/football/teams/463.png", "winner": null }
+  },
+  "goals": { "home": 2, "away": 1 }
+}

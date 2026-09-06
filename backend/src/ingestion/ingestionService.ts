@@ -5,12 +5,11 @@ import type { SportsDataProvider } from "../providers/SportsDataProvider.js";
 import type { MappedFixture, MatchStatus } from "../domain/types.js";
 import { ProviderQueryRejectedError } from "../providers/SportsDataProvider.js";
 import type { FootballDataProvider } from "../providers/FootballDataProvider.js";
-import { deriveId } from "../domain/deriveId.js";
-import { PROVIDER_CODE, deriveSeasonId } from "../providers/mappers/fixtureMapper.js";
+import { deriveSeasonId } from "../providers/mappers/fixtureMapper.js";
 import { detectChanges, synthesizeStatusEvent, type PreviousMatchState } from "./changeDetector.js";
 import { QuotaManager, type PollCategory } from "./quotaManager.js";
 import { upsertLeague, ensureSeason } from "../db/repositories/leagueRepository.js";
-import { upsertTeam, getTeamsPlayedInLeague } from "../db/repositories/teamRepository.js";
+import { upsertTeam, getAllKnownTeams } from "../db/repositories/teamRepository.js";
 import { upsertPlayerStub } from "../db/repositories/playerRepository.js";
 import {
   getMatchById,
@@ -111,11 +110,13 @@ export function pollUpcomingFixtures(
  * Standings come from a *different* provider than matches (ADR-002/007
  * addenda) — API-Football's free tier can't supply current-season
  * standings at all. `deps.standingsProvider` (football-data.org) is
- * resolved by API-Football's own league identity (`leagueId`, `seasonId`),
- * never football-data.org's own ids, and its teams are reconciled by name
- * against teams API-Football's match ingestion already created for this
- * league (domain/teamNameMatch.ts) — that's why this needs `deps.pool`
- * ahead of the fetch, not just after it.
+ * resolved by API-Football's own season identity (`seasonId`), never
+ * football-data.org's own ids, and its teams are reconciled by name against
+ * every team API-Football's match ingestion has ever created
+ * (`getAllKnownTeams` — deliberately not scoped to this one league; see its
+ * doc comment for why that scoping looked safer but starved the candidate
+ * pool in practice) — that's why this needs `deps.pool` ahead of the fetch,
+ * not just after it.
  */
 export async function pollStandings(
   deps: IngestionDeps,
@@ -133,13 +134,12 @@ export async function pollStandings(
   }
   await deps.quotaManager.recordAttempt("standings");
 
-  const leagueId = deriveId(PROVIDER_CODE, "league", leagueExternalId);
   const seasonId = deriveSeasonId(leagueExternalId, seasonYear);
 
-  let standings;
+  let result;
   try {
-    const candidates = await getTeamsPlayedInLeague(deps.pool, leagueId);
-    standings = await deps.standingsProvider.getStandings(leagueExternalId, seasonId, candidates);
+    const candidates = await getAllKnownTeams(deps.pool);
+    result = await deps.standingsProvider.getStandings(leagueExternalId, seasonId, candidates);
   } catch (err) {
     if (err instanceof ProviderQueryRejectedError) {
       logger.warn({ reasons: err.reasons }, "Provider rejected standings query for this plan — skipping tier");
@@ -151,7 +151,13 @@ export async function pollStandings(
   }
 
   await withTransaction(async (client) => {
-    for (const standing of standings) {
+    // Unreconciled teams (footballDataMapper's doc comment explains why
+    // this is the common case, not rare) must exist before the standings
+    // rows referencing them — teams.id is a foreign key on standings.
+    for (const team of result.newTeams) {
+      await upsertTeam(client, team);
+    }
+    for (const standing of result.standings) {
       await upsertStanding(client, standing);
     }
   });

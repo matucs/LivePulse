@@ -29,22 +29,31 @@ export async function upsertTeam(client: QueryClient, team: Team): Promise<void>
 }
 
 /**
- * Teams that have actually appeared in a match for this league — the
- * candidate set for cross-provider name reconciliation
- * (domain/teamNameMatch.ts), bounded deliberately so a standings poll can
- * only attach to a team already known (via API-Football match ingestion)
- * to play in that specific league, not any team ever ingested anywhere.
+ * All teams API-Football has ever given us (any league) — the candidate
+ * set for cross-provider name reconciliation (domain/teamNameMatch.ts).
+ *
+ * This was originally scoped to "teams that played *this specific* tracked
+ * league" — which sounded like the tighter, safer choice, but real-key
+ * validation showed it was wrong in practice: `live=all` (ADR-002) only
+ * ever returns whatever happens to be live *right now*, and on any given
+ * poll, the vast majority of live matches worldwide are lower-tier/regional
+ * leagues, not the six specifically tracked ones. A tracked league can go
+ * an entire session without a single live match, leaving its per-league
+ * candidate pool empty and every standings row unreconcilable — not a
+ * name-matching failure, a starved candidate pool. Confirmed directly: 0/18
+ * Premier League teams reconciled against a 1-match candidate pool, while
+ * "Arsenal" existed correctly among the 485 teams ingested from *other*
+ * leagues that happened to be live at that moment.
+ *
+ * Broadening to "every team ever ingested" trades a small, accepted
+ * collision risk (two distinctly-named lower-league clubs normalizing to
+ * the same string — unlikely among a few hundred real club names) for a
+ * dramatically higher, honest match rate. Still scoped by
+ * findMatchingTeam()'s exact-normalized-name requirement — it doesn't
+ * fuzzy-match, so a same-named-but-different club would need to collide
+ * exactly, not just approximately.
  */
-export async function getTeamsPlayedInLeague(client: QueryClient, leagueId: string): Promise<TeamCandidate[]> {
-  const { rows } = await client.query<{ id: string; name: string }>(
-    `SELECT DISTINCT t.id, t.name
-     FROM teams t
-     WHERE t.id IN (
-       SELECT home_team_id FROM matches WHERE league_id = $1
-       UNION
-       SELECT away_team_id FROM matches WHERE league_id = $1
-     )`,
-    [leagueId],
-  );
+export async function getAllKnownTeams(client: QueryClient): Promise<TeamCandidate[]> {
+  const { rows } = await client.query<{ id: string; name: string }>(`SELECT id, name FROM teams`);
   return rows;
 }

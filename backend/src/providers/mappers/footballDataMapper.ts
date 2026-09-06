@@ -1,8 +1,36 @@
-import type { Standing } from "../../domain/types.js";
+import type { Standing, Team } from "../../domain/types.js";
 import type { TeamCandidate } from "../../domain/teamNameMatch.js";
 import { findMatchingTeam } from "../../domain/teamNameMatch.js";
+import { deriveId } from "../../domain/deriveId.js";
 import type { FootballDataStandingsResponse } from "./footballDataTypes.js";
 import { logger } from "../../utils/logger.js";
+
+export const PROVIDER_CODE = "football-data" as const;
+
+export interface StandingsMappingResult {
+  standings: Standing[];
+  /**
+   * Teams that couldn't be reconciled to an existing API-Football-sourced
+   * team by name (domain/teamNameMatch.ts) — typically because that
+   * league hasn't had a live match ingested yet this session, so the team
+   * simply doesn't exist in `teams` at all (confirmed during real-key
+   * validation: this is the common case, not a rare edge case, since the
+   * six tracked leagues only account for a small fraction of matches
+   * `live=all` returns at any given moment). These must be upserted
+   * *before* the standings rows that reference them are written.
+   *
+   * This is a deliberate choice over silently dropping the row: the
+   * standings data is real, and attributing it to a football-data.org-
+   * sourced team (rather than inventing a fake one, or refusing to show
+   * it) is honest about provenance. The accepted cost, documented in the
+   * ADR-007 addendum, is a temporary duplicate `teams` row once
+   * API-Football's own match ingestion later creates "the same" club
+   * under its own identity — a real gap, not hidden, with the schema-level
+   * fix (a canonical team-identity table) noted as the proper long-term
+   * solution.
+   */
+  newTeams: Team[];
+}
 
 /**
  * Maps football-data.org's standings response into internal `Standing`
@@ -10,33 +38,43 @@ import { logger } from "../../utils/logger.js";
  * identity (docs/data-provider.md's `deriveSeasonId`) — never derived from
  * football-data.org's own competition/team ids. See
  * domain/teamNameMatch.ts for why team identity must be resolved by name
- * against `candidates` (teams API-Football's match ingestion already
- * created for this league), not by football-data.org's own team id.
- *
- * A team that doesn't reconcile is skipped and logged, not guessed at —
- * see teamNameMatch.ts's documented limitation.
+ * against `candidates` (every team API-Football has ingested so far) before
+ * falling back to a football-data.org-sourced team row.
  */
 export function mapStandings(
   response: FootballDataStandingsResponse,
   seasonId: string,
   candidates: TeamCandidate[],
-): Standing[] {
+): StandingsMappingResult {
   const total = response.standings.find((g) => g.type === "TOTAL");
-  if (!total) return [];
+  if (!total) return { standings: [], newTeams: [] };
 
-  const results: Standing[] = [];
+  const standings: Standing[] = [];
+  const newTeams: Team[] = [];
   for (const row of total.table) {
     const match = findMatchingTeam(candidates, row.team.name);
-    if (!match) {
-      logger.warn(
+    let teamId: string;
+    if (match) {
+      teamId = match.id;
+    } else {
+      const externalId = String(row.team.id);
+      teamId = deriveId(PROVIDER_CODE, "team", externalId);
+      newTeams.push({
+        id: teamId,
+        providerId: PROVIDER_CODE,
+        externalId,
+        name: row.team.name,
+        shortName: row.team.shortName ?? undefined,
+        logoUrl: row.team.crest ?? undefined,
+      });
+      logger.info(
         { footballDataTeam: row.team.name, competition: response.competition.code },
-        "Could not reconcile football-data.org team name to an existing team — skipping this standings row",
+        "No existing API-Football team matched by name — creating a football-data.org-sourced team row for this standings entry",
       );
-      continue;
     }
-    results.push({
+    standings.push({
       seasonId,
-      teamId: match.id,
+      teamId,
       rank: row.position,
       played: row.playedGames,
       won: row.won,
@@ -48,5 +86,5 @@ export function mapStandings(
       form: row.form ?? undefined,
     });
   }
-  return results;
+  return { standings, newTeams };
 }

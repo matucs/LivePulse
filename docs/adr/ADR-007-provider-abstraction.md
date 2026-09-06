@@ -108,13 +108,18 @@ reversal of it:
   identity. `Standing` rows must attach to the exact `teams`/`seasons` rows
   API-Football's match ingestion already created, and football-data.org has
   no relationship to API-Football's ids for the same real-world clubs. The
-  fix (`domain/teamNameMatch.ts`) resolves this by normalized-name matching,
-  scoped to teams known to have played in the relevant league, and *skips*
-  (logs, doesn't guess) a team it can't confidently reconcile — e.g. it
-  cannot currently bridge a translated name like football-data.org's "FC
-  Bayern München" against API-Football's "Bayern Munich". The correct
-  long-term fix is a schema-level canonical team-identity table with
-  per-provider aliases; not built now because it's a real migration
+  fix (`domain/teamNameMatch.ts`) resolves this by normalized-name matching
+  against every team API-Football has ever ingested, and *skips* (logs,
+  doesn't guess) a team it can't confidently reconcile — e.g. it cannot
+  currently bridge a translated name like football-data.org's "FC Bayern
+  München" against API-Football's "Bayern Munich". (First implementation
+  scoped candidates to "teams that played *this specific* tracked league" —
+  seemingly safer, but real-key validation showed `live=all`'s coverage of
+  the six tracked leagues on any given poll is sparse enough to starve that
+  candidate pool almost entirely; broadened to all known teams, see
+  `teamRepository.getAllKnownTeams`'s comment for the measured evidence.)
+  The correct long-term fix is a schema-level canonical team-identity table
+  with per-provider aliases; not built now because it's a real migration
   (ADR-005) for a problem that, today, affects a handful of clubs across six
   tracked leagues — a reasonable scope line, not an oversight.
 - **Upcoming fixtures were deliberately left out of this fix.** Unlike a

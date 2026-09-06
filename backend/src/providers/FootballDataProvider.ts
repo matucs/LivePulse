@@ -1,9 +1,8 @@
-import type { Standing } from "../domain/types.js";
 import type { TeamCandidate } from "../domain/teamNameMatch.js";
 import type { RateLimitInfo } from "./SportsDataProvider.js";
 import { ProviderQueryRejectedError } from "./SportsDataProvider.js";
 import type { FootballDataErrorResponse, FootballDataStandingsResponse } from "./mappers/footballDataTypes.js";
-import { mapStandings } from "./mappers/footballDataMapper.js";
+import { mapStandings, type StandingsMappingResult } from "./mappers/footballDataMapper.js";
 import { CircuitBreaker, NonRetryableError, withRetry } from "../utils/retry.js";
 import { logger } from "../utils/logger.js";
 
@@ -62,7 +61,11 @@ export class FootballDataProvider {
    *   to the season/team identity API-Football's match ingestion already
    *   established, not a new football-data.org-scoped identity.
    */
-  async getStandings(leagueExternalId: string, seasonId: string, candidates: TeamCandidate[]): Promise<Standing[]> {
+  async getStandings(
+    leagueExternalId: string,
+    seasonId: string,
+    candidates: TeamCandidate[],
+  ): Promise<StandingsMappingResult> {
     const code = API_FOOTBALL_TO_FOOTBALL_DATA_CODE[leagueExternalId];
     if (!code) {
       throw new Error(`No football-data.org competition code mapped for league external id ${leagueExternalId}`);

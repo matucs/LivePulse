@@ -67,21 +67,27 @@ describe("mapStandings (football-data.org)", () => {
   ];
 
   it("maps only the TOTAL table, ignoring HOME/AWAY splits", () => {
-    const result = mapStandings(buildResponse(), "season-1", candidates);
-    expect(result.every((r) => r.rank !== 99)).toBe(true);
+    const { standings } = mapStandings(buildResponse(), "season-1", candidates);
+    expect(standings.every((r) => r.rank !== 99)).toBe(true);
   });
 
   it("reconciles a team by normalized name to the caller-supplied candidate's internal id", () => {
-    const result = mapStandings(buildResponse(), "season-1", candidates);
-    const manCity = result.find((r) => r.points === 23);
+    const { standings, newTeams } = mapStandings(buildResponse(), "season-1", candidates);
+    const manCity = standings.find((r) => r.points === 23);
     expect(manCity?.teamId).toBe("internal-man-city");
     expect(manCity?.seasonId).toBe("season-1");
     expect(manCity?.rank).toBe(1);
+    // A reconciled team must not also be reported as needing a new row.
+    expect(newTeams.some((t) => t.id === "internal-man-city")).toBe(false);
   });
 
-  it("skips a row that cannot be reconciled instead of inventing a new team id", () => {
-    const result = mapStandings(buildResponse(), "season-1", candidates);
-    expect(result).toHaveLength(1); // Bayern München silently dropped, not guessed at
-    expect(result.some((r) => r.points === 21)).toBe(false);
+  it("creates a football-data.org-sourced team, rather than dropping the row, when no candidate reconciles", () => {
+    const { standings, newTeams } = mapStandings(buildResponse(), "season-1", candidates);
+    const bayern = standings.find((r) => r.points === 21);
+    expect(bayern).toBeDefined(); // not silently dropped
+    expect(bayern?.teamId).toBeTruthy();
+
+    const newTeam = newTeams.find((t) => t.id === bayern?.teamId);
+    expect(newTeam).toMatchObject({ providerId: "football-data", externalId: "99", name: "FC Bayern München" });
   });
 });

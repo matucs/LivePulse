@@ -9,12 +9,23 @@ import type {
 import { mapFixture } from "./mappers/fixtureMapper.js";
 import { CircuitBreaker, NonRetryableError, withRetry } from "../utils/retry.js";
 import { logger } from "../utils/logger.js";
+import { providerRequestDuration, providerRequestErrors } from "../observability/metrics.js";
+
+const PROVIDER_LABEL = "api-football";
 
 /** API-Football's `errors` field is `[]`/`{}` when empty — both mean "no errors". */
 function extractPlanErrors(errors: Record<string, string> | unknown[]): Record<string, string> | null {
   if (Array.isArray(errors)) return null;
   const keys = Object.keys(errors);
   return keys.length ? errors : null;
+}
+
+function classifyError(err: unknown): string {
+  if (err instanceof ProviderQueryRejectedError) return "plan_rejected";
+  if (err instanceof Error && err.name === "AbortError") return "timeout";
+  if (err instanceof Error && err.message.includes("rate limit")) return "rate_limited";
+  if (err instanceof Error && err.message.includes("request failed")) return "http_error";
+  return "other";
 }
 
 export interface ApiFootballProviderOptions {
@@ -57,6 +68,11 @@ export class ApiFootballProvider implements SportsDataProvider {
       async () => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 8000);
+        const startedAt = process.hrtime.bigint();
+        const observeDuration = (outcome: "success" | "failure"): void => {
+          const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+          providerRequestDuration.observe({ provider: PROVIDER_LABEL, outcome }, seconds);
+        };
         try {
           const res = await fetch(`${this.opts.baseUrl}${path}`, {
             headers: { "x-apisports-key": this.opts.apiKey },
@@ -84,7 +100,16 @@ export class ApiFootballProvider implements SportsDataProvider {
             throw new ProviderQueryRejectedError(path, planErrors);
           }
 
+          observeDuration("success");
           return { data, rateLimit };
+        } catch (err) {
+          // Single point of failure-observation (duration + error
+          // classification) — deliberately not duplicated inline at each
+          // throw site above, which would risk double-counting the same
+          // failure once inline and once here.
+          observeDuration("failure");
+          providerRequestErrors.inc({ provider: PROVIDER_LABEL, error_type: classifyError(err) });
+          throw err;
         } finally {
           clearTimeout(timeout);
         }

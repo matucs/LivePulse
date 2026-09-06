@@ -24,14 +24,14 @@ export async function startScoresConsumer(bus: EventBus, redis: Redis): Promise<
   await bus.subscribe(
     Topics.MatchScoreChanged,
     ConsumerGroups.Scores,
-    withDlqHandling(bus, Topics.MatchScoreChanged, async (envelope) => {
+    withDlqHandling(bus, Topics.MatchScoreChanged, ConsumerGroups.Scores, async (envelope) => {
       await publishToGateway(envelope);
     }),
   );
   await bus.subscribe(
     Topics.MatchStatusChanged,
     ConsumerGroups.Scores,
-    withDlqHandling(bus, Topics.MatchStatusChanged, async (envelope) => {
+    withDlqHandling(bus, Topics.MatchStatusChanged, ConsumerGroups.Scores, async (envelope) => {
       await publishToGateway(envelope);
     }),
   );

@@ -6,6 +6,7 @@ import { cacheKeys } from "../cache/keys.js";
 import { buildMatchSnapshot } from "../api/matchSnapshot.js";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { websocketConnections, websocketMessages } from "../observability/metrics.js";
 
 interface ClientMessage {
   type: "subscribe" | "unsubscribe" | "ping";
@@ -49,7 +50,12 @@ export class WebSocketGateway {
     this.subscriberRedis.on("message", (channel: string, message: string) => {
       const sockets = this.channelSubscribers.get(channel);
       if (!sockets) return;
-      for (const ws of sockets) this.rawSend(ws, message);
+      // Cheap type extraction for the metric label, not a full JSON.parse
+      // per fan-out send — the consumers always put `type` first in the
+      // object they publish (scoresConsumer.ts etc.), so this is reliable
+      // in practice without paying parsing cost for every relayed message.
+      const type = /"type":"([^"]+)"/.exec(message)?.[1] ?? "unknown";
+      for (const ws of sockets) this.rawSend(ws, message, type);
     });
 
     this.wss.on("connection", (ws, req) => {
@@ -79,19 +85,20 @@ export class WebSocketGateway {
 
   private handleConnection(ws: WebSocket, ip: string): void {
     if (this.wss.clients.size > env.WS_MAX_CONNECTIONS) {
-      this.rawSend(ws, JSON.stringify({ type: "error", code: "GLOBAL_CONNECTION_LIMIT", message: "Server connection limit reached" }));
+      this.rawSend(ws, JSON.stringify({ type: "error", code: "GLOBAL_CONNECTION_LIMIT", message: "Server connection limit reached" }), "error");
       ws.close();
       return;
     }
     const ipCount = this.ipConnectionCounts.get(ip) ?? 0;
     if (ipCount >= env.WS_MAX_CONNECTIONS_PER_IP) {
-      this.rawSend(ws, JSON.stringify({ type: "error", code: "IP_CONNECTION_LIMIT", message: "Too many connections from this IP" }));
+      this.rawSend(ws, JSON.stringify({ type: "error", code: "IP_CONNECTION_LIMIT", message: "Too many connections from this IP" }), "error");
       ws.close();
       return;
     }
     this.ipConnectionCounts.set(ip, ipCount + 1);
     this.connectionSubscriptions.set(ws, new Set());
     this.aliveFlags.set(ws, true);
+    websocketConnections.inc();
 
     ws.on("pong", () => this.aliveFlags.set(ws, true));
     ws.on("message", (raw) => void this.handleMessage(ws, raw));
@@ -104,9 +111,11 @@ export class WebSocketGateway {
     try {
       msg = JSON.parse(raw.toString());
     } catch {
+      websocketMessages.inc({ direction: "in", type: "invalid" });
       this.sendError(ws, "INVALID_MESSAGE", "Malformed JSON");
       return;
     }
+    websocketMessages.inc({ direction: "in", type: msg.type ?? "unknown" });
 
     switch (msg.type) {
       case "subscribe":
@@ -171,6 +180,7 @@ export class WebSocketGateway {
   }
 
   private async handleClose(ws: WebSocket, ip: string): Promise<void> {
+    websocketConnections.dec();
     const ipCount = this.ipConnectionCounts.get(ip) ?? 1;
     if (ipCount <= 1) this.ipConnectionCounts.delete(ip);
     else this.ipConnectionCounts.set(ip, ipCount - 1);
@@ -195,15 +205,17 @@ export class WebSocketGateway {
     }
   }
 
-  private send(ws: WebSocket, msg: unknown): void {
-    this.rawSend(ws, JSON.stringify(msg));
+  private send(ws: WebSocket, msg: { type: string } & Record<string, unknown>): void {
+    this.rawSend(ws, JSON.stringify(msg), msg.type);
   }
 
   private sendError(ws: WebSocket, code: string, message: string): void {
     this.send(ws, { type: "error", code, message });
   }
 
-  private rawSend(ws: WebSocket, data: string): void {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  private rawSend(ws: WebSocket, data: string, type = "unknown"): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(data);
+    websocketMessages.inc({ direction: "out", type });
   }
 }

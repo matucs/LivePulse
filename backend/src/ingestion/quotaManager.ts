@@ -11,6 +11,7 @@ import type { RateLimitInfo } from "../providers/SportsDataProvider.js";
  * rate-limit headers) as a global safety margin that overrides everything.
  */
 export type PollCategory = "live" | "fixtures" | "standings";
+export const POLL_CATEGORIES: readonly PollCategory[] = ["live", "fixtures", "standings"];
 
 export interface QuotaCheck {
   allowed: boolean;
@@ -80,5 +81,11 @@ export class QuotaManager {
    */
   async markPermanentlyRejected(category: PollCategory, reason: string): Promise<void> {
     await this.redis.set(rejectedKey(category), reason, "EX", 60 * 60 * 24);
+  }
+
+  /** §15's "API Requests Today" — summed across categories, using the same key format `recordAttempt` writes (kept in one place, not duplicated at the read site). */
+  async getTotalSpentToday(): Promise<number> {
+    const values = await Promise.all(POLL_CATEGORIES.map((category) => this.redis.get(spentKey(category))));
+    return values.reduce<number>((sum, v) => sum + Number(v ?? 0), 0);
   }
 }

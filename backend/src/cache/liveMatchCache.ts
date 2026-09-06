@@ -1,6 +1,7 @@
 import type { Redis } from "ioredis";
 import type { Match } from "../domain/types.js";
 import { cacheKeys } from "./keys.js";
+import { redisCacheHits, redisCacheMisses } from "../observability/metrics.js";
 
 /** The subset of Match state that changes fast enough to be worth caching separately (docs/adr/ADR-004). */
 export interface LiveMatchState {
@@ -11,9 +12,14 @@ export interface LiveMatchState {
   lastUpdatedAt: string; // ISO 8601 — drives dataFreshnessSeconds (docs/caching.md)
 }
 
+/** This is THE cache-aside read path docs/caching.md describes — hit/miss are the §21 metrics of that pattern actually working. */
 export async function getLiveMatchState(redis: Redis, matchId: string): Promise<LiveMatchState | null> {
   const raw = await redis.hgetall(cacheKeys.liveMatch(matchId));
-  if (!raw || Object.keys(raw).length === 0) return null;
+  if (!raw || Object.keys(raw).length === 0) {
+    redisCacheMisses.inc({ cache: "live_match" });
+    return null;
+  }
+  redisCacheHits.inc({ cache: "live_match" });
   return {
     status: raw.status as Match["status"],
     homeScore: Number(raw.homeScore),

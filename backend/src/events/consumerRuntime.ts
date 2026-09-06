@@ -1,6 +1,7 @@
 import type { EventBus, EventHandler } from "./EventBus.js";
 import { dlqTopic, type Topic } from "./topics.js";
 import { logger } from "../utils/logger.js";
+import { eventProcessingLatency, eventsFailed, eventsProcessed } from "../observability/metrics.js";
 
 /**
  * Retry-then-DLQ wrapper (docs/adr/ADR-003) — deliberately implemented
@@ -17,12 +18,27 @@ import { logger } from "../utils/logger.js";
  * logged and pushed to the DLQ so it's inspectable (Kafka UI locally),
  * never silently dropped.
  */
-export function withDlqHandling(bus: EventBus, topic: Topic, handler: EventHandler, maxAttempts = 3): EventHandler {
+export function withDlqHandling(
+  bus: EventBus,
+  topic: Topic,
+  consumerGroup: string,
+  handler: EventHandler,
+  maxAttempts = 3,
+): EventHandler {
   return async (envelope, raw) => {
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await handler(envelope, raw);
+        eventsProcessed.inc({ consumer_group: consumerGroup, topic });
+        // §21's event_processing_latency: from the event's own occurredAt
+        // (set at detection time, docs/kafka.md's envelope) to this
+        // consumer finishing — the true end-to-end figure, not just this
+        // handler's own execution time.
+        const latencySeconds = (Date.now() - Date.parse(envelope.occurredAt)) / 1000;
+        if (Number.isFinite(latencySeconds) && latencySeconds >= 0) {
+          eventProcessingLatency.observe({ consumer_group: consumerGroup }, latencySeconds);
+        }
         return;
       } catch (err) {
         lastError = err;
@@ -38,6 +54,7 @@ export function withDlqHandling(bus: EventBus, topic: Topic, handler: EventHandl
       { topic, eventId: envelope.eventId, attempts: maxAttempts, err: String(lastError) },
       "Consumer handler exhausted retries — publishing to DLQ",
     );
+    eventsFailed.inc({ consumer_group: consumerGroup, topic });
     await bus.publish(
       dlqTopic(topic),
       raw.key,

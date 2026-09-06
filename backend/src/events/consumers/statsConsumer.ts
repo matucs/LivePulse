@@ -10,7 +10,7 @@ export async function startStatsConsumer(bus: EventBus, redis: Redis): Promise<v
   await bus.subscribe(
     Topics.StatisticsUpdated,
     ConsumerGroups.Stats,
-    withDlqHandling(bus, Topics.StatisticsUpdated, async (envelope) => {
+    withDlqHandling(bus, Topics.StatisticsUpdated, ConsumerGroups.Stats, async (envelope) => {
       await redis.publish(
         cacheKeys.wsMatchChannel(envelope.matchId),
         JSON.stringify({ type: "match:stats", matchId: envelope.matchId, data: envelope.payload }),

@@ -1,3 +1,4 @@
+import "../observability/tracing.js"; // MUST be the first import — see its own doc comment for why
 import Fastify from "fastify";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
@@ -6,6 +7,7 @@ import { redis } from "../cache/redisClient.js";
 import { ApiFootballProvider } from "../providers/ApiFootballProvider.js";
 import { FootballDataProvider } from "../providers/FootballDataProvider.js";
 import { QuotaManager } from "../ingestion/quotaManager.js";
+import { recordQuota } from "../cache/quotaCache.js";
 import { PollingScheduler } from "../ingestion/scheduler.js";
 import type { IngestionDeps } from "../ingestion/ingestionService.js";
 import type { EventBus } from "../events/EventBus.js";
@@ -31,6 +33,21 @@ app.addHook("onRequest", async (request, reply) => {
   if (request.method === "OPTIONS") {
     reply.code(204).send();
   }
+});
+
+// §21 structured logging — `Fastify({ logger: false })` above means
+// Fastify's own request logger never runs (pino, via utils/logger.ts, is
+// the one logging surface, not duplicated); without this hook there was
+// previously zero visibility into actual REST traffic at all, a real gap
+// for an "engineering dashboard" project to have. /health and /metrics are
+// scrape/probe endpoints, not user traffic — logged at debug so they don't
+// flood the log at whatever interval a monitor polls them.
+app.addHook("onResponse", async (request, reply) => {
+  const isNoisy = request.url === "/health" || request.url === "/metrics";
+  logger[isNoisy ? "debug" : "info"](
+    { method: request.method, path: request.url, statusCode: reply.statusCode, durationMs: Math.round(reply.elapsedTime) },
+    "request",
+  );
 });
 
 await app.register(matchRoutes);
@@ -103,7 +120,12 @@ async function start(): Promise<void> {
       standingsProvider = new FootballDataProvider({
         apiToken: env.FOOTBALL_DATA_API_TOKEN,
         baseUrl: env.FOOTBALL_DATA_BASE_URL,
-        onRateLimit: () => {}, // separate quota surface from API-Football's — not yet on the ops dashboard, see docs/adr/ADR-002 addendum
+        // Own the Prometheus gauge directly (provider_quota_remaining,
+        // §21) rather than QuotaManager's Redis-backed state, which stays
+        // API-Football-specific on purpose (docs/cache/quotaCache.ts).
+        onRateLimit: (info) => {
+          void recordQuota(redis, info, "success", "football-data");
+        },
       });
     } else {
       logger.warn(

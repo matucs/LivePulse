@@ -5,6 +5,16 @@ import type { FootballDataErrorResponse, FootballDataStandingsResponse } from ".
 import { mapStandings, type StandingsMappingResult } from "./mappers/footballDataMapper.js";
 import { CircuitBreaker, NonRetryableError, withRetry } from "../utils/retry.js";
 import { logger } from "../utils/logger.js";
+import { providerRequestDuration, providerRequestErrors } from "../observability/metrics.js";
+
+const PROVIDER_LABEL = "football-data";
+
+function classifyError(err: unknown): string {
+  if (err instanceof ProviderQueryRejectedError) return "plan_rejected";
+  if (err instanceof Error && err.name === "AbortError") return "timeout";
+  if (err instanceof Error && err.message.includes("rate limit")) return "rate_limited";
+  return "other";
+}
 
 /**
  * Static mapping from API-Football's numeric league ids (what LivePulse's
@@ -79,6 +89,7 @@ export class FootballDataProvider {
       async () => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 8000);
+        const startedAt = process.hrtime.bigint();
         try {
           const res = await fetch(`${this.opts.baseUrl}/competitions/${code}/standings`, {
             headers: { "X-Auth-Token": this.opts.apiToken },
@@ -102,7 +113,18 @@ export class FootballDataProvider {
 
           const json = (await res.json()) as FootballDataStandingsResponse;
           this.breaker.onSuccess();
+          providerRequestDuration.observe(
+            { provider: PROVIDER_LABEL, outcome: "success" },
+            Number(process.hrtime.bigint() - startedAt) / 1e9,
+          );
           return { data: json, rateLimit };
+        } catch (err) {
+          providerRequestDuration.observe(
+            { provider: PROVIDER_LABEL, outcome: "failure" },
+            Number(process.hrtime.bigint() - startedAt) / 1e9,
+          );
+          providerRequestErrors.inc({ provider: PROVIDER_LABEL, error_type: classifyError(err) });
+          throw err;
         } finally {
           clearTimeout(timeout);
         }

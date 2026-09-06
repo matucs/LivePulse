@@ -8,6 +8,8 @@ import type { FootballDataProvider } from "../providers/FootballDataProvider.js"
 import { deriveSeasonId } from "../providers/mappers/fixtureMapper.js";
 import type { EventBus } from "../events/EventBus.js";
 import { buildDomainEvents } from "../events/domainEvents.js";
+import { eventsDetected, eventsPublished } from "../observability/metrics.js";
+import { eventsPublishedRate } from "../observability/rateWindow.js";
 import { detectChanges, synthesizeStatusEvent, type PreviousMatchState } from "./changeDetector.js";
 import { QuotaManager, type PollCategory } from "./quotaManager.js";
 import { upsertLeague, ensureSeason } from "../db/repositories/leagueRepository.js";
@@ -259,11 +261,19 @@ export async function ingestFixture(
     }
   }
 
+  // "Detected" is independent of whether anything publishes it (§21's
+  // events_detected vs events_published are deliberately different
+  // metrics) — a real change was found here regardless of event bus
+  // configuration.
+  const events = buildDomainEvents(mapped, previous, changes, synthetic);
+  for (const event of events) eventsDetected.inc({ event_type: event.eventType });
+
   if (deps.eventBus) {
-    const events = buildDomainEvents(mapped, previous, changes, synthetic);
     for (const event of events) {
       try {
         await deps.eventBus.publish(event.topic, event.key, event.payload, event.eventType);
+        eventsPublished.inc({ topic: event.topic });
+        eventsPublishedRate.record();
       } catch (err) {
         // docs/ingestion.md's failure table: Postgres + Redis already
         // committed above — a broker outage degrades the event-driven

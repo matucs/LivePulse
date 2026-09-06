@@ -25,6 +25,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 </span>
                 <span className="hidden text-xs text-text-muted sm:inline">Real-Time Sports Intelligence</span>
               </Link>
+              {/* §15/README's own stated philosophy: the ops dashboard is the point, not a bonus — kept one click away, not buried. */}
+              <Link href="/ops" className="text-sm text-text-muted hover:text-text">
+                Engineering Dashboard
+              </Link>
             </div>
           </header>
           <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>

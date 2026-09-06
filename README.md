@@ -54,13 +54,13 @@ are real and working, not simulated.
 - [x] **Phase 3 — MVP.** Ingestion → PostgreSQL → Redis → Next.js. ✅ Done and validated against real API-Football + football-data.org keys (see "What's actually verified" below) — not just fixture-based unit tests.
 - [x] **Phase 4 — Kafka.** Domain events, consumers, topics. ✅ Done — real Kafka locally (Docker Compose), verified against real match data flowing through all 4 consumer groups; see [ADR-003's Phase 4 addendum](docs/adr/ADR-003-kafka-architecture.md#addendum-2026-09-06-phase-4-what-kafkas-consumers-actually-do-once-real-code-existed).
 - [x] **Phase 5 — WebSockets.** Real-time browser updates. ✅ Done — a real goal and several real halftime events flowed automatically end to end (ingestion → Kafka → consumers → Redis pub/sub → gateway → client) with no manual intervention; see [ADR-006's Phase 5 note](docs/adr/ADR-006-websocket-architecture.md#phase-5-implementation-note-verified-against-real-data).
-- [ ] **Phase 6 — Observability.** Metrics, logging, tracing.
+- [x] **Phase 6 — Observability.** Metrics, logging, tracing. ✅ Done — every §21 metric wired to a real call site (not stubbed), verified against real data including a Kafka admin-API lag query and a real Jaeger trace; a real ioredis-instrumentation compatibility gap found and documented rather than papered over. See [docs/observability.md](docs/observability.md) and the new [Engineering Dashboard](frontend/app/ops/page.tsx) (`/ops`).
 - [ ] **Phase 7 — Testing.** Unit, integration, E2E.
 - [ ] **Phase 8 — AI features.** Match summaries, analysis, Q&A (clearly separated from the core pipeline).
 - [ ] **Phase 9 — Deployment.** Portfolio mode, €0/month.
 - [ ] **Phase 10 — Case study.** Final write-up + engineering self-review.
 
-## What's actually verified (Phases 3–5)
+## What's actually verified (Phases 3–6)
 
 Stated plainly, because a claim like "the MVP works" is worth nothing
 without saying what was actually checked — and because this project found
@@ -134,12 +134,25 @@ assuming fixture-based tests were enough.
   benign, not a real bug) and a production build (`next start`, one clean
   connection, no console warnings). See the
   [ADR-006 frontend integration note](docs/adr/ADR-006-websocket-architecture.md#frontend-integration-note-phase-5-continued-validated-in-a-real-browser).
+- **Every §21 metric is wired to a real call site and verified, not
+  stubbed** (Phase 6) — see [docs/observability.md](docs/observability.md)
+  for the full table and how each one was checked. Two findings worth
+  repeating here specifically because they're the kind of thing a
+  checklist-driven implementation wouldn't have caught: `kafka_consumer_lag`
+  queries Kafka's real admin API and was confirmed against genuine
+  per-partition offsets; `@opentelemetry/instrumentation-ioredis` — despite
+  declaring support for the exact ioredis version this project runs — was
+  tested in isolation and confirmed to silently emit zero spans, a real
+  instrumentation/major-version gap, so it's left out and documented rather
+  than shipped as decoration. The new [Engineering Dashboard](frontend/app/ops/page.tsx)
+  (`/ops`) renders these numbers live, including the amber warning on
+  `apiRequestsRemaining` this session's own real testing triggered for real.
 
 **What is still not verified**: upcoming fixtures still can't be shown
 from either provider (a harder cross-provider *match*-identity problem,
 deliberately deferred — see the ADR-002 addendum). WebSocket connection
 limits (500 global / 5 per IP) are implemented per ADR-006 but haven't been
-load-tested against real concurrent connections yet — that's Phase 6+
+load-tested against real concurrent connections yet — that's Phase 7+
 territory (§20's synthetic load-testing tool).
 
 ## Documentation map
@@ -158,7 +171,7 @@ docs/
   scalability.md         ✅ Portfolio vs Production Mode, honest bottlenecks
   deployment.md          ✅ Docker Compose + Portfolio Mode deploy plan
   reliability.md          (ongoing — expanded through later phases)
-  observability.md        (Phase 6)
+  observability.md       ✅ metrics/logging/tracing, each mapped to real code + real verification
   ai.md                    (Phase 8)
   technical-decisions.md ✅ ongoing — Kafka honesty, replay mode, security hygiene
 ```

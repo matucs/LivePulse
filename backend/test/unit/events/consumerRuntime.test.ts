@@ -30,7 +30,7 @@ describe("withDlqHandling", () => {
   it("does not retry or hit the DLQ when the handler succeeds first try", async () => {
     const bus = fakeBus();
     const handler = vi.fn().mockResolvedValue(undefined);
-    const wrapped = withDlqHandling(bus, Topics.MatchScoreChanged, handler);
+    const wrapped = withDlqHandling(bus, Topics.MatchScoreChanged, "test-consumer-group", handler);
 
     await wrapped(envelope, { key: "match-1" });
 
@@ -41,7 +41,7 @@ describe("withDlqHandling", () => {
   it("retries a failing handler up to maxAttempts, then succeeds without hitting the DLQ", async () => {
     const bus = fakeBus();
     const handler = vi.fn().mockRejectedValueOnce(new Error("transient")).mockResolvedValueOnce(undefined);
-    const wrapped = withDlqHandling(bus, Topics.MatchScoreChanged, handler, 3);
+    const wrapped = withDlqHandling(bus, Topics.MatchScoreChanged, "test-consumer-group", handler, 3);
 
     const resultPromise = wrapped(envelope, { key: "match-1" });
     await vi.runAllTimersAsync();
@@ -54,7 +54,7 @@ describe("withDlqHandling", () => {
   it("publishes to <topic>.dlq after exhausting retries, and does not rethrow (a poison message must not block the partition)", async () => {
     const bus = fakeBus();
     const handler = vi.fn().mockRejectedValue(new Error("permanently broken"));
-    const wrapped = withDlqHandling(bus, Topics.MatchScoreChanged, handler, 3);
+    const wrapped = withDlqHandling(bus, Topics.MatchScoreChanged, "test-consumer-group", handler, 3);
 
     const resultPromise = wrapped(envelope, { key: "match-1" });
     await vi.runAllTimersAsync();

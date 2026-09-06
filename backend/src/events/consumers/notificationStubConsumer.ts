@@ -14,7 +14,7 @@ export async function startNotificationStubConsumer(bus: EventBus): Promise<void
   await bus.subscribe(
     Topics.NotificationRequested,
     ConsumerGroups.NotificationStub,
-    withDlqHandling(bus, Topics.NotificationRequested, async (envelope) => {
+    withDlqHandling(bus, Topics.NotificationRequested, ConsumerGroups.NotificationStub, async (envelope) => {
       logger.info({ matchId: envelope.matchId, payload: envelope.payload }, "Notification requested (stub — no dispatcher built yet)");
     }),
   );

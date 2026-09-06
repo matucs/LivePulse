@@ -77,6 +77,19 @@ export interface Standing {
   form?: string;
 }
 
+/** §15's engineering dashboard fields — computed backend-side (backend/src/api/routes/ops.ts) from the same instruments docs/observability.md describes, not recalculated here. */
+export interface OpsSummary {
+  liveMatches: number;
+  kafkaEventsPerSecond: number;
+  kafkaConsumerLagMax: number;
+  websocketConnections: number;
+  apiRequestsToday: number;
+  apiRequestsRemaining: number | null;
+  redisHitRate: number | null;
+  eventProcessingLatencyAvgSeconds: number | null;
+  failedEvents: number;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -94,4 +107,5 @@ export const api = {
   matchStatistics: (id: string) => get<{ statistics: TeamMatchStatistics[] }>(`/api/matches/${id}/statistics`),
   leagues: () => get<{ leagues: League[] }>("/api/leagues"),
   standings: (leagueId: string) => get<{ seasonId: string; standings: Standing[] }>(`/api/leagues/${leagueId}/standings`),
+  opsSummary: () => get<OpsSummary>("/api/ops/summary"),
 };

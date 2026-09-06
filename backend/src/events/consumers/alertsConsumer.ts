@@ -27,7 +27,7 @@ export async function startAlertsConsumer(bus: EventBus, redis: Redis): Promise<
   await bus.subscribe(
     Topics.MatchEventCreated,
     ConsumerGroups.Alerts,
-    withDlqHandling(bus, Topics.MatchEventCreated, async (envelope) => {
+    withDlqHandling(bus, Topics.MatchEventCreated, ConsumerGroups.Alerts, async (envelope) => {
       await redis.publish(
         cacheKeys.wsMatchChannel(envelope.matchId),
         JSON.stringify({ type: "match:event", matchId: envelope.matchId, event: envelope.payload }),

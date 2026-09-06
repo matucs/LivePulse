@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Lightweight secret scan — stopgap until gitleaks + GitHub secret scanning
+# are wired in (see docs/technical-decisions.md, section 3).
+# Not a substitute for real scanning; just stops the obvious stuff.
+
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# Never allow actual .env files (only .env.example) to be committed.
+for f in $staged; do
+  base=$(basename "$f")
+  if [[ "$base" == .env && "$base" != ".env.example" ]]; then
+    echo "pre-commit: refusing to commit '$f' — looks like a real .env file." >&2
+    exit 1
+  fi
+done
+
+pattern='(api[_-]?key|secret|token|password)\s*[:=]\s*["'"'"']?[A-Za-z0-9_\-\/+]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|postgres(ql)?:\/\/[^:]+:[^@]+@'
+
+hits=""
+for f in $staged; do
+  [ -f "$f" ] || continue
+  if grep -EIni --color=never "$pattern" "$f" >/tmp/livepulse-precommit-hit 2>/dev/null; then
+    hits+="$f:"$'\n'"$(cat /tmp/livepulse-precommit-hit)"$'\n'
+  fi
+done
+rm -f /tmp/livepulse-precommit-hit
+
+if [ -n "$hits" ]; then
+  echo "pre-commit: possible secret detected in staged changes:" >&2
+  echo "$hits" >&2
+  echo "If this is a false positive, use 'git commit --no-verify' deliberately." >&2
+  exit 1
+fi
+
+exit 0

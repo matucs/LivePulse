@@ -23,6 +23,27 @@ what else was evaluated and rejected, and why.
 LivePulse is a **non-commercial engineering demo**. It is not a data resale
 product, and does not claim rights over the underlying competition data.
 
+## Engineering philosophy
+
+A few decisions worth stating up front rather than leaving implicit (full
+detail in [docs/technical-decisions.md](docs/technical-decisions.md)):
+
+- **Kafka is used here on purpose, not because this workload needs it.** At
+  API-Football's free-tier budget, real event volume is small enough that a
+  single-process emitter or Redis pub/sub would genuinely suffice. Kafka is
+  built and run for real (Docker Compose, real topics/consumer groups) to
+  demonstrate event-driven architecture deliberately — and this README says
+  so, rather than waiting for an interviewer to ask "why Kafka for a
+  REST-polling toy?"
+- **The empty state is the common case, not an edge case.** Real matches
+  aren't live most of the time a visitor arrives. The home page is designed
+  to always look intentional (recent results, upcoming fixtures, standings),
+  and a clearly-labeled **Replay Mode** (real recorded match data, not
+  synthetic) lets anyone watch the live-update mechanics on demand.
+- **The engineering ops dashboard is the point, not a bonus.** Consumer lag, event
+  latency, quota remaining, WebSocket connections — that's the part that
+  demonstrates distributed-systems judgment, not just frontend polish.
+
 ## Project status
 
 Built in phases, in order — later phases are not started until earlier ones
@@ -68,3 +89,15 @@ docs/
 - Not implementing every future feature (accounts, notifications,
   multi-sport, multi-provider) up front — the architecture is designed so
   they *can* be added later (see ADR-007), not so they all exist now.
+
+## Local development setup
+
+```bash
+git config core.hooksPath .githooks   # activates the pre-commit secret scan
+cp .env.example .env                  # once it exists (Phase 3) — never commit .env
+```
+
+The pre-commit hook is a stopgap regex scan for obvious secrets, not a
+replacement for real tooling — see
+[docs/technical-decisions.md §3](docs/technical-decisions.md#3-security--credibility-hygiene)
+for what replaces it once this is pushed to GitHub.

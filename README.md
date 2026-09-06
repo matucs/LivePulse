@@ -55,12 +55,12 @@ are real and working, not simulated.
 - [x] **Phase 4 — Kafka.** Domain events, consumers, topics. ✅ Done — real Kafka locally (Docker Compose), verified against real match data flowing through all 4 consumer groups; see [ADR-003's Phase 4 addendum](docs/adr/ADR-003-kafka-architecture.md#addendum-2026-09-06-phase-4-what-kafkas-consumers-actually-do-once-real-code-existed).
 - [x] **Phase 5 — WebSockets.** Real-time browser updates. ✅ Done — a real goal and several real halftime events flowed automatically end to end (ingestion → Kafka → consumers → Redis pub/sub → gateway → client) with no manual intervention; see [ADR-006's Phase 5 note](docs/adr/ADR-006-websocket-architecture.md#phase-5-implementation-note-verified-against-real-data).
 - [x] **Phase 6 — Observability.** Metrics, logging, tracing. ✅ Done — every §21 metric wired to a real call site (not stubbed), verified against real data including a Kafka admin-API lag query and a real Jaeger trace; a real ioredis-instrumentation compatibility gap found and documented rather than papered over. See [docs/observability.md](docs/observability.md) and the new [Engineering Dashboard](frontend/app/ops/page.tsx) (`/ops`).
-- [ ] **Phase 7 — Testing.** Unit, integration, E2E.
+- [x] **Phase 7 — Testing.** Unit, integration, E2E. ✅ Done — real E2E via Playwright found and fixed a genuine UX bug (see below); a real, previously-untested `RedisStreamsEventBus` (the actual Portfolio Mode transport) got its first automated coverage and a real latent bug fix along with it. CI wired in [.github/workflows/ci.yml](.github/workflows/ci.yml) — validated command-by-command against real infrastructure, honestly not yet run on a real GitHub Actions execution (no remote configured).
 - [ ] **Phase 8 — AI features.** Match summaries, analysis, Q&A (clearly separated from the core pipeline).
 - [ ] **Phase 9 — Deployment.** Portfolio mode, €0/month.
 - [ ] **Phase 10 — Case study.** Final write-up + engineering self-review.
 
-## What's actually verified (Phases 3–6)
+## What's actually verified (Phases 3–7)
 
 Stated plainly, because a claim like "the MVP works" is worth nothing
 without saying what was actually checked — and because this project found
@@ -147,13 +147,34 @@ assuming fixture-based tests were enough.
   than shipped as decoration. The new [Engineering Dashboard](frontend/app/ops/page.tsx)
   (`/ops`) renders these numbers live, including the amber warning on
   `apiRequestsRemaining` this session's own real testing triggered for real.
+- **Phase 7 (Testing) found two real bugs, not just added coverage**:
+  `RedisStreamsEventBus` — the actual Portfolio Mode production transport
+  (ADR-008) — had zero test coverage before this; a new integration test
+  against real Redis caught a genuine latent bug (a handler exception was
+  escaping to the wrong error-handling path, triggering an unwanted 2s
+  connection-level backoff after every application-level failure). A new
+  Playwright E2E suite, run against the real backend/database/WebSocket
+  gateway (not mocked), caught a real UX bug: TanStack Query's default
+  retry policy retried a permanent 404 three times with exponential
+  backoff, leaving a user looking at a loading skeleton for 7+ seconds
+  before an error ever appeared — fixed to stop retrying 4xx responses,
+  the same "don't retry what can't succeed" principle already applied
+  throughout the backend. Per-IP and per-connection WebSocket limits
+  (ADR-006) now have real integration test coverage too (opening genuine
+  concurrent connections from one IP, and real match rows to exhaust the
+  per-connection subscription cap — a nonexistent matchId never actually
+  counts toward that limit, so the test needed real rows, not just UUIDs).
+  CI (`.github/workflows/ci.yml`) wires all of this together, including a
+  fixture-seeded E2E job that never touches the real API-Football quota.
 
 **What is still not verified**: upcoming fixtures still can't be shown
 from either provider (a harder cross-provider *match*-identity problem,
-deliberately deferred — see the ADR-002 addendum). WebSocket connection
-limits (500 global / 5 per IP) are implemented per ADR-006 but haven't been
-load-tested against real concurrent connections yet — that's Phase 7+
-territory (§20's synthetic load-testing tool).
+deliberately deferred — see the ADR-002 addendum). `KafkaEventBus` has no
+automated test coverage (validated manually against real data in Phases
+4–6, not via CI — see docs/deployment.md's CI/CD section). The CI workflow
+itself has never executed as a real GitHub Actions run (no remote
+configured) — validated command-by-command locally, not proven green on
+GitHub.
 
 ## Documentation map
 

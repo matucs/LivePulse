@@ -1,0 +1,164 @@
+# §27's CI/CD, flagged as a Phase 7 implementation target back in
+# docs/deployment.md's Phase 2 design. Not yet exercised by a real GitHub
+# Actions run (this repo has no GitHub remote configured — see
+# docs/technical-decisions.md's git hygiene notes) — written and validated
+# for correctness (job structure, action versions, real commands this
+# project's own package.json scripts already run locally), but "will this
+# YAML actually turn green on GitHub" is an honest open item, not a
+# claim this project makes.
+#
+# Kafka is deliberately not a CI service here: no current integration test
+# exercises KafkaEventBus directly (only RedisStreamsEventBus has automated
+# coverage — test/integration/redisStreamsEventBus.test.ts) — Kafka itself
+# was validated manually against real data during Phases 4-6, not via an
+# automated test. A documented gap, not a silent one (docs/observability.md
+# and README's "What's actually verified" follow the same practice).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: livepulse
+          POSTGRES_USER: livepulse
+          POSTGRES_PASSWORD: livepulse_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U livepulse"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://livepulse:livepulse_ci@localhost:5432/livepulse
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - run: npm run lint
+        working-directory: backend
+      - run: npm run typecheck
+        working-directory: backend
+      - run: npm test
+        working-directory: backend
+      - run: npm run migrate:up
+        working-directory: backend
+      - run: npm run test:integration
+        working-directory: backend
+      - run: npm run build
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_WS_URL: ws://localhost:4000/ws
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: livepulse
+          POSTGRES_USER: livepulse
+          POSTGRES_PASSWORD: livepulse_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U livepulse"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://livepulse:livepulse_ci@localhost:5432/livepulse
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000/ws
+      E2E_API_URL: http://localhost:4000
+      E2E_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+        working-directory: backend
+      - run: npm run migrate:up
+        working-directory: backend
+      # No real API_FOOTBALL_KEY in CI — seeds one real, previously-recorded
+      # fixture instead of calling the live API, so E2E has real match data
+      # to exercise without spending any of the free-tier daily quota
+      # (docs/adr/ADR-002; see scripts/seed-fixture.ts's own doc comment).
+      - run: npm run seed:fixture
+        working-directory: backend
+      - run: npm run build
+        working-directory: backend
+      - name: Start backend
+        working-directory: backend
+        run: nohup node dist/api/server.js > backend.log 2>&1 &
+      - name: Wait for backend
+        run: npx wait-on http://localhost:4000/health --timeout 30000
+
+      # Frontend's own lint/typecheck/build are already covered by the
+      # `frontend` job above — this job only needs a running dev server for
+      # Playwright's webServer config (playwright.config.ts) to attach to.
+      - run: npm ci
+        working-directory: frontend
+      # playwright.config.ts uses channel:"chrome" (the real Google Chrome,
+      # not Playwright's bundled Chromium) — this installs that specific
+      # channel, matching what runs locally against this environment's
+      # system-installed Chrome.
+      - run: npx playwright install --with-deps chrome
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
+
+      - name: Backend logs (on failure)
+        if: failure()
+        run: cat backend/backend.log || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

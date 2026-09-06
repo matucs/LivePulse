@@ -10,11 +10,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "lint": "eslint src test",
+    "lint": "eslint src test scripts",
     "typecheck": "tsc --noEmit",
     "migrate": "node-pg-migrate --migrations-dir src/db/migrations",
     "migrate:up": "node-pg-migrate up --migrations-dir src/db/migrations",
-    "migrate:down": "node-pg-migrate down --migrations-dir src/db/migrations"
+    "migrate:down": "node-pg-migrate down --migrations-dir src/db/migrations",
+    "seed:fixture": "tsx scripts/seed-fixture.ts"
   },
   "dependencies": {
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",

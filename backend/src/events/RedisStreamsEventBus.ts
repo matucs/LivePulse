@@ -87,7 +87,19 @@ export class RedisStreamsEventBus implements EventBus {
             const fieldMap = Object.fromEntries([0, 2].map((i) => [fields[i], fields[i + 1]]));
             const envelope = JSON.parse(fieldMap.envelope ?? "{}");
             try {
+              // Caught and logged here, not left to propagate to the outer
+              // catch below — that one exists for Redis connection-level
+              // failures (worth a backoff before retrying), not for a
+              // handler that threw on a single message it's already
+              // finished with. In real usage `handler` is always
+              // `withDlqHandling`'s wrapper (consumerRuntime.ts), which
+              // never actually throws (it retries internally, then DLQs) —
+              // this catch exists for the raw EventBus contract itself,
+              // caught by the integration test that talks to this bus
+              // directly, not by real consumer usage.
               await handler(envelope, { key: fieldMap.key ?? "" });
+            } catch (err) {
+              logger.error({ topic, groupId, id, err }, "Redis Streams handler threw — acking anyway, not retried by this bus");
             } finally {
               // Ack even on handler failure — withDlqHandling (consumerRuntime.ts)
               // already retried and published to DLQ; leaving it unacked would

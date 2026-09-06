@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { ApiError } from "./apiClient";
 
 /**
  * The mechanism behind "the page updates without a refresh" (§3) in Phase
@@ -18,6 +19,16 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 5000,
             refetchOnWindowFocus: true,
+            // A 4xx (404 — this match/league doesn't exist, or a malformed
+            // id) will never succeed no matter how many times it's
+            // retried — TanStack Query's default (3 retries, exponential
+            // backoff) applied to those left a user staring at a loading
+            // skeleton for 7+ seconds before an error ever appeared.
+            // 5xx/network failures are still worth one real retry.
+            retry: (failureCount, error) => {
+              if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
+              return failureCount < 2;
+            },
           },
         },
       }),

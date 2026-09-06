@@ -90,10 +90,27 @@ export interface OpsSummary {
   failedEvents: number;
 }
 
+/**
+ * Carries the HTTP status so QueryProvider.tsx's retry logic can tell a
+ * permanent failure (404 — this match doesn't exist, retrying is pointless)
+ * from a possibly-transient one (5xx) — the same "don't retry what can't
+ * succeed" principle the backend already applies (ProviderQueryRejectedError,
+ * NonRetryableError). Found via a real E2E test, not written speculatively:
+ * without this, a 404 retried under TanStack Query's default policy (3
+ * attempts, exponential backoff) left a user looking at a loading skeleton
+ * for 7+ seconds before the "couldn't load" message ever appeared.
+ */
+export class ApiError extends Error {
+  constructor(public readonly status: number, path: string) {
+    super(`API request to ${path} failed: ${status}`);
+    this.name = "ApiError";
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`API request to ${path} failed: ${res.status}`);
+    throw new ApiError(res.status, path);
   }
   return res.json() as Promise<T>;
 }

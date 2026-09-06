@@ -96,16 +96,35 @@ design (ADR-003), running on a different transport.
   credentials live only in the backend's environment, never in
   `NEXT_PUBLIC_*` variables (§24).
 
-## CI/CD (§27, Phase 7 implementation target)
+## CI/CD (§27)
 
-GitHub Actions, two workflows:
+`.github/workflows/ci.yml` — implemented in Phase 7, three jobs:
 
-- **On pull request:** lint → typecheck → unit tests → integration tests
-  (Postgres/Redis/Kafka services spun up via `services:` in the workflow,
-  same images as Docker Compose) → build.
-- **On merge to `main`:** build → test → deploy (Vercel via its GitHub
-  integration for the frontend; Northflank via its deploy hook/CLI for the
-  backend).
+- **`backend`**: lint → typecheck → unit tests → real Postgres/Redis
+  services → migrations → integration tests → build. Kafka is deliberately
+  not a CI service — no current integration test exercises `KafkaEventBus`
+  directly (only `RedisStreamsEventBus` has automated coverage); Kafka
+  itself was validated manually against real data during Phases 4–6, a
+  documented gap, not a silent one.
+- **`frontend`**: lint → typecheck → build.
+- **`e2e`**: a real Postgres/Redis, real migrations, `scripts/seed-fixture.ts`
+  (seeds one real, previously-recorded match — never the live API, so
+  automated CI runs never spend the free-tier daily quota, ADR-002) → the
+  real built backend, started and health-checked → Playwright against it,
+  using the system's Chrome (`channel: "chrome"`, `playwright install
+  --with-deps chrome`), not a fresh bundled-Chromium download.
+
+**Honestly stated, not glossed over**: this repository has no GitHub remote
+configured, so this workflow has been validated for correctness (YAML
+syntax, job structure, and every command individually run against real
+local infrastructure — migrations, the seed script, the production build
+booting and serving real requests) but has never actually executed as a
+real GitHub Actions run. "The YAML is right" and "it's green on GitHub" are
+different claims; only the first one is made here.
+
+Deploy-on-merge (Vercel for the frontend, Northflank for the backend) is
+still a Phase 9 item, not built in Phase 7 — CI here covers verification,
+not deployment.
 
 A real CI badge is added to the README once this workflow exists and is
 green — not before (see

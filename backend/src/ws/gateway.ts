@@ -101,8 +101,13 @@ export class WebSocketGateway {
     websocketConnections.inc();
 
     ws.on("pong", () => this.aliveFlags.set(ws, true));
-    ws.on("message", (raw) => void this.handleMessage(ws, raw));
-    ws.on("close", () => void this.handleClose(ws, ip));
+    // `void fn()` alone discards the promise without handling rejection —
+    // a Redis command failing mid-cleanup (e.g. `unsubscribe` racing a
+    // connection drop) would otherwise surface as an unhandled rejection
+    // rather than the graceful degradation this project's Redis-failure
+    // philosophy calls for (ADR-004). Caught and logged instead.
+    ws.on("message", (raw) => this.handleMessage(ws, raw).catch((err) => logger.error({ err: String(err) }, "handleMessage failed")));
+    ws.on("close", () => this.handleClose(ws, ip).catch((err) => logger.error({ err: String(err) }, "handleClose failed")));
     ws.on("error", (err) => logger.warn({ err: String(err) }, "WebSocket connection error"));
   }
 

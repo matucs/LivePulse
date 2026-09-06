@@ -50,7 +50,7 @@ Built in phases, in order — later phases are not started until earlier ones
 are real and working, not simulated.
 
 - [x] **Phase 1 — Research.** Provider comparison, terms/limits review, ADR-001. ✅ Done.
-- [ ] **Phase 2 — Architecture.** Domain model, Kafka topics, DB schema, caching strategy, WebSocket design, deployment architecture.
+- [x] **Phase 2 — Architecture.** Domain model, Kafka topics, DB schema, caching strategy, WebSocket design, deployment architecture, ADR-002–008. ✅ Done — see [architecture.md](docs/architecture.md).
 - [ ] **Phase 3 — MVP.** Real API → ingestion → PostgreSQL → Redis → Next.js (no Kafka/WebSockets yet).
 - [ ] **Phase 4 — Kafka.** Domain events, consumers, topics.
 - [ ] **Phase 5 — WebSockets.** Real-time browser updates.
@@ -64,21 +64,21 @@ are real and working, not simulated.
 
 ```text
 docs/
-  research/            Phase 1 provider research
-  adr/                 Architecture Decision Records (ADR-001 ...)
-  architecture.md      (Phase 2)
-  data-provider.md      (Phase 2)
-  ingestion.md          (Phase 2/3)
-  change-detection.md   (Phase 2/3)
-  kafka.md              (Phase 4)
-  websocket.md          (Phase 5)
-  caching.md            (Phase 2/3)
-  scalability.md        (Phase 2, revisited Phase 10)
-  reliability.md        (ongoing)
-  observability.md      (Phase 6)
-  deployment.md         (Phase 9)
-  ai.md                 (Phase 8)
-  technical-decisions.md (ongoing)
+  research/              Phase 1 provider research
+  adr/                   Architecture Decision Records (ADR-001 – ADR-008, all accepted)
+  architecture.md        ✅ system diagram, domain model, end-to-end data flow
+  data-provider.md       ✅ SportsDataProvider interface + ApiFootballProvider
+  ingestion.md           ✅ polling → change detection → publish pipeline
+  change-detection.md    ✅ detectors, idempotency guarantees
+  kafka.md               ✅ topics, partitions, consumer groups, DLQ
+  websocket.md           ✅ protocol, reconnect, connection limits
+  caching.md             ✅ Redis key schema, freshness thresholds, failure modes
+  scalability.md         ✅ Portfolio vs Production Mode, honest bottlenecks
+  deployment.md          ✅ Docker Compose + Portfolio Mode deploy plan
+  reliability.md          (ongoing — expanded through later phases)
+  observability.md        (Phase 6)
+  ai.md                    (Phase 8)
+  technical-decisions.md ✅ ongoing — Kafka honesty, replay mode, security hygiene
 ```
 
 ## Non-goals (for now)

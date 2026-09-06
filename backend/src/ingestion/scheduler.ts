@@ -21,8 +21,9 @@ export class PollingScheduler {
     this.scheduleTier("fixtures", env.UPCOMING_POLL_INTERVAL_MS, async () => {
       const from = new Date();
       const to = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // next 3 days
+      const seasonYear = new Date().getFullYear();
       for (const leagueId of env.TRACKED_LEAGUE_IDS) {
-        await pollUpcomingFixtures(this.deps, leagueId, from, to);
+        await pollUpcomingFixtures(this.deps, leagueId, seasonYear, from, to);
       }
     });
 

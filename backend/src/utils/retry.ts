@@ -40,8 +40,19 @@ export async function withRetry<T>(fn: (attempt: number) => Promise<T>, opts: Re
     try {
       return await fn(attempt);
     } catch (err) {
+      // A NonRetryableError (429s, ProviderQueryRejectedError, ...) means
+      // "don't retry this," not "we tried and ran out of attempts" — it
+      // must propagate as itself so callers can `instanceof`-check it
+      // specifically. Wrapping it in RetryExhaustedError here (as this
+      // function used to do unconditionally) silently erased that type on
+      // the very first attempt, which is what let a plan-restriction
+      // rejection masquerade as a generic exhausted-retries failure
+      // upstream (see docs/adr/ADR-002 addendum).
+      if (err instanceof NonRetryableError) {
+        throw err;
+      }
       lastError = err;
-      if (err instanceof NonRetryableError || attempt === maxAttempts) {
+      if (attempt === maxAttempts) {
         break;
       }
       const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);

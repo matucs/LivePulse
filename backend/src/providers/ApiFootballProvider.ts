@@ -1,6 +1,7 @@
 import type { MappedFixture, Standing } from "../domain/types.js";
-import type { ProviderResponse, RateLimitInfo, SportsDataProvider } from "./SportsDataProvider.js";
+import { ProviderQueryRejectedError, type ProviderResponse, type RateLimitInfo, type SportsDataProvider } from "./SportsDataProvider.js";
 import type {
+  ApiFootballBaseResponse,
   ApiFootballEventsResponse,
   ApiFootballFixturesResponse,
   ApiFootballStandingsResponse,
@@ -9,6 +10,13 @@ import type {
 import { mapFixture, mapStandings, deriveSeasonId } from "./mappers/fixtureMapper.js";
 import { CircuitBreaker, NonRetryableError, withRetry } from "../utils/retry.js";
 import { logger } from "../utils/logger.js";
+
+/** API-Football's `errors` field is `[]`/`{}` when empty — both mean "no errors". */
+function extractPlanErrors(errors: Record<string, string> | unknown[]): Record<string, string> | null {
+  if (Array.isArray(errors)) return null;
+  const keys = Object.keys(errors);
+  return keys.length ? errors : null;
+}
 
 export interface ApiFootballProviderOptions {
   apiKey: string;
@@ -41,7 +49,7 @@ export class ApiFootballProvider implements SportsDataProvider {
 
   constructor(private readonly opts: ApiFootballProviderOptions) {}
 
-  private async request<T>(path: string): Promise<ProviderResponse<T>> {
+  private async request<T extends ApiFootballBaseResponse>(path: string): Promise<ProviderResponse<T>> {
     if (!this.breaker.canProceed()) {
       throw new Error(`Circuit breaker open for API-Football — skipping request to ${path}`);
     }
@@ -67,7 +75,16 @@ export class ApiFootballProvider implements SportsDataProvider {
           }
 
           const data = (await res.json()) as T;
+          // The HTTP round-trip succeeded (key valid, connectivity fine) —
+          // that's what the breaker tracks, so onSuccess() fires regardless
+          // of a plan-restriction rejection below (see ProviderQueryRejectedError).
           this.breaker.onSuccess();
+
+          const planErrors = extractPlanErrors(data.errors);
+          if (planErrors) {
+            throw new ProviderQueryRejectedError(path, planErrors);
+          }
+
           return { data, rateLimit };
         } finally {
           clearTimeout(timeout);
@@ -90,11 +107,19 @@ export class ApiFootballProvider implements SportsDataProvider {
     return data.response.map((f) => mapFixture(f));
   }
 
-  async getFixturesByLeague(leagueExternalId: string, from: Date, to: Date): Promise<MappedFixture[]> {
+  async getFixturesByLeague(
+    leagueExternalId: string,
+    seasonYear: number,
+    from: Date,
+    to: Date,
+  ): Promise<MappedFixture[]> {
+    // `season` is required by API-Football, not optional (its absence
+    // previously produced a *different* error than the plan restriction
+    // below and masked it — see the ADR-002 addendum).
     const fromStr = from.toISOString().slice(0, 10);
     const toStr = to.toISOString().slice(0, 10);
     const { data } = await this.request<ApiFootballFixturesResponse>(
-      `/fixtures?league=${leagueExternalId}&from=${fromStr}&to=${toStr}`,
+      `/fixtures?league=${leagueExternalId}&season=${seasonYear}&from=${fromStr}&to=${toStr}`,
     );
     return data.response.map((f) => mapFixture(f));
   }

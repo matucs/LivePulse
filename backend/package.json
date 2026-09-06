@@ -12,9 +12,9 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
-    "migrate": "node-pg-migrate",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down"
+    "migrate": "node-pg-migrate --migrations-dir src/db/migrations",
+    "migrate:up": "node-pg-migrate up --migrations-dir src/db/migrations",
+    "migrate:down": "node-pg-migrate down --migrations-dir src/db/migrations"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

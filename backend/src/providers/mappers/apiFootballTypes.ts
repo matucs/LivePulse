@@ -4,6 +4,19 @@
  * everything else works with docs/data-provider.md's domain types.
  */
 
+/**
+ * Every API-Football v3 response carries this `errors` field, HTTP 200
+ * regardless — a request rejected by the plan (e.g. season-scoped queries
+ * restricted to a historical window on the free tier, discovered during
+ * Phase 3 real-key validation — see docs/adr/ADR-002 addendum) looks like
+ * an ordinary successful response with `results: 0` unless this is checked.
+ * API-Football is inconsistent about the empty case: sometimes `[]`,
+ * sometimes `{}` — both mean "no errors".
+ */
+export interface ApiFootballBaseResponse {
+  errors: Record<string, string> | unknown[];
+}
+
 export interface ApiFootballTeamRef {
   id: number;
   name: string;
@@ -43,7 +56,7 @@ export interface ApiFootballFixture {
   };
 }
 
-export interface ApiFootballFixturesResponse {
+export interface ApiFootballFixturesResponse extends ApiFootballBaseResponse {
   response: ApiFootballFixture[];
 }
 
@@ -57,7 +70,7 @@ export interface ApiFootballEvent {
   comments: string | null;
 }
 
-export interface ApiFootballEventsResponse {
+export interface ApiFootballEventsResponse extends ApiFootballBaseResponse {
   response: ApiFootballEvent[];
 }
 
@@ -71,7 +84,7 @@ export interface ApiFootballStatistics {
   statistics: ApiFootballStatItem[];
 }
 
-export interface ApiFootballStatisticsResponse {
+export interface ApiFootballStatisticsResponse extends ApiFootballBaseResponse {
   response: ApiFootballStatistics[];
 }
 
@@ -90,7 +103,7 @@ export interface ApiFootballStandingRow {
   };
 }
 
-export interface ApiFootballStandingsResponse {
+export interface ApiFootballStandingsResponse extends ApiFootballBaseResponse {
   response: Array<{
     league: {
       id: number;

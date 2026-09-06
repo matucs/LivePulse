@@ -3,6 +3,7 @@ import type { QueryClient } from "../db/client.js";
 import { withTransaction } from "../db/client.js";
 import type { SportsDataProvider } from "../providers/SportsDataProvider.js";
 import type { MappedFixture, MatchStatus } from "../domain/types.js";
+import { ProviderQueryRejectedError } from "../providers/SportsDataProvider.js";
 import { detectChanges, synthesizeStatusEvent, type PreviousMatchState } from "./changeDetector.js";
 import { QuotaManager, type PollCategory } from "./quotaManager.js";
 import { upsertLeague, ensureSeason } from "../db/repositories/leagueRepository.js";
@@ -52,6 +53,15 @@ async function runCategoryPoll(
   try {
     fixtures = await fetch();
   } catch (err) {
+    if (err instanceof ProviderQueryRejectedError) {
+      // Known, permanent condition (e.g. a free-tier plan restriction) —
+      // not a fault. Logged once per tick at `warn`, not `error`, and never
+      // retried (docs/adr/ADR-002 addendum) — an unrelated, working
+      // category (e.g. live polling) must keep running regardless.
+      logger.warn({ category, reasons: err.reasons }, "Provider rejected this query for this plan — skipping tier");
+      await deps.quotaManager.markPermanentlyRejected(category, err.message);
+      return { polled: 0, changed: 0, skipped: true, reason: err.message };
+    }
     logger.error({ category, err }, "Poll tick failed");
     return { polled: 0, changed: 0, skipped: true, reason: String(err) };
   }
@@ -77,10 +87,13 @@ export function pollLiveMatches(deps: IngestionDeps): Promise<PollResult> {
 export function pollUpcomingFixtures(
   deps: IngestionDeps,
   leagueExternalId: string,
+  seasonYear: number,
   from: Date,
   to: Date,
 ): Promise<PollResult> {
-  return runCategoryPoll(deps, "fixtures", () => deps.provider.getFixturesByLeague(leagueExternalId, from, to));
+  return runCategoryPoll(deps, "fixtures", () =>
+    deps.provider.getFixturesByLeague(leagueExternalId, seasonYear, from, to),
+  );
 }
 
 export async function pollStandings(
@@ -95,7 +108,19 @@ export async function pollStandings(
   }
   await deps.quotaManager.recordAttempt("standings");
 
-  const standings = await deps.provider.getStandings(leagueExternalId, seasonYear);
+  let standings;
+  try {
+    standings = await deps.provider.getStandings(leagueExternalId, seasonYear);
+  } catch (err) {
+    if (err instanceof ProviderQueryRejectedError) {
+      logger.warn({ reasons: err.reasons }, "Provider rejected standings query for this plan — skipping tier");
+      await deps.quotaManager.markPermanentlyRejected("standings", err.message);
+      return { skipped: true, reason: err.message };
+    }
+    logger.error({ err }, "Standings poll failed");
+    return { skipped: true, reason: String(err) };
+  }
+
   await withTransaction(async (client) => {
     for (const standing of standings) {
       await upsertStanding(client, standing);

@@ -27,10 +27,23 @@ function spentKey(category: PollCategory, now = new Date()): string {
   return `api:quota:spent:${category}:${now.toISOString().slice(0, 10)}`;
 }
 
+function rejectedKey(category: PollCategory): string {
+  return `api:quota:rejected:${category}`;
+}
+
 export class QuotaManager {
   constructor(private readonly redis: Redis) {}
 
   async canPoll(category: PollCategory): Promise<QuotaCheck> {
+    // A category the provider has already, permanently rejected this
+    // request shape for (docs/adr/ADR-002 addendum — e.g. a free-tier plan
+    // restriction) must not keep spending budget on doomed requests: §8
+    // ("do not waste API requests") applies just as much to a request that
+    // will *always* fail as to one blocked by a rate limit.
+    if (await this.redis.exists(rejectedKey(category))) {
+      return { allowed: false, reason: `category "${category}" previously rejected by provider plan — not retrying today` };
+    }
+
     const state = await getQuotaState(this.redis);
     if (state.dailyRemaining !== undefined && state.dailyRemaining <= env.DAILY_SAFETY_MARGIN) {
       return {
@@ -56,5 +69,16 @@ export class QuotaManager {
 
   async recordResult(rateLimit: RateLimitInfo, outcome: "success" | "failure"): Promise<void> {
     await recordQuota(this.redis, rateLimit, outcome);
+  }
+
+  /**
+   * Called when a provider rejects a category's query shape permanently
+   * (`ProviderQueryRejectedError`) — stops wasting budget on it for the
+   * rest of the day. Re-checked daily (TTL, not "forever") since a plan
+   * restriction is provider/plan state that could change (e.g. upgrading
+   * tiers, or the provider adjusting the restriction) without a deploy.
+   */
+  async markPermanentlyRejected(category: PollCategory, reason: string): Promise<void> {
+    await this.redis.set(rejectedKey(category), reason, "EX", 60 * 60 * 24);
   }
 }

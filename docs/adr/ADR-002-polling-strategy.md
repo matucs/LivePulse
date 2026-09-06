@@ -121,3 +121,67 @@ instances from both polling (and both spending quota) for the same tick.
   the only thing that needs to change to get near-real-time freshness — the
   polling architecture doesn't change, only its configured interval and
   budget table.
+
+## Addendum (2026-09-06): free-tier season restriction found during real-key validation
+
+Phase 1 research (ADR-001) confirmed live-score availability and the
+100/day, 10/min limits from documentation, but did not test every
+season-scoped endpoint against a real key — a real gap in that research,
+not a provider surprise the docs failed to mention; it was checkable and
+wasn't checked. The first real ingestion run against a live API-Football
+key surfaced it directly:
+
+```
+GET /fixtures?league=39&season=2026&from=...&to=...
+GET /standings?league=39&season=2026
+→ HTTP 200, results: 0, errors: {"plan":"Free plans do not have access to
+  this season, try from 2022 to 2024."}
+```
+
+Confirmed by direct testing, not assumption: the free tier restricts **all**
+season-scoped fixture and standings queries to a 2022–2024 historical
+window — this blocks both the "fixtures" tier (upcoming matches for the
+current season) and the "standings" tier entirely, for every tracked league,
+not just some. The `next=`/`last=` parameters (which don't take a `season`
+argument) were tried as a workaround and are separately blocked outright on
+free plans (`"Free plans do not have access to the Next/Last parameter."`).
+**Only `/fixtures?live=all` — which takes no season parameter — returns
+current data on the free tier.**
+
+Two things followed from this, one a bug fix and one a design consequence:
+
+1. **A real bug, found in the process of confirming the restriction**: the
+   provider client wasn't checking API-Football's `errors` field at all
+   (every response is HTTP 200 regardless of plan rejection), so a rejected
+   query silently looked like "zero results" rather than "this request was
+   refused." Fixed by making every response type carry `errors`, checking it
+   in `ApiFootballProvider.request()`, and introducing
+   `ProviderQueryRejectedError` (provider-agnostic, defined on
+   `SportsDataProvider` per ADR-007, not API-Football-specific) so ingestion
+   treats a permanent plan rejection differently from a transient failure:
+   logged once as a warning, and the category is marked rejected in Redis
+   for the rest of the day (`QuotaManager.markPermanentlyRejected`) so it
+   stops spending budget on a request that can never succeed — the same
+   "don't waste requests" principle (§8) applied to a deterministic
+   rejection, not just to rate limiting. A related bug surfaced alongside
+   it: `withRetry` was unconditionally wrapping a `NonRetryableError` in
+   `RetryExhaustedError` even when it broke out of the loop on the first
+   attempt without retrying at all, which erased the original error's type
+   for exactly this kind of `instanceof` check — fixed to propagate a
+   `NonRetryableError` as itself.
+2. **A design consequence, not yet fixed**: the "upcoming matches" and
+   "standings" sections of the product (§3) cannot be populated with real
+   current-season data from API-Football's free tier at all — no polling
+   interval or budget reallocation changes this, since every request shape
+   that would supply it is rejected outright. This is exactly the scenario
+   ADR-007's provider abstraction was built for: a second provider (the
+   ADR-001 research already flagged football-data.org as free-tier-viable
+   for exactly this — current-season fixtures and standings for major
+   competitions, no live scores needed from it) is the real fix, added as a
+   `SportsDataProvider` implementation used only for these two data types
+   while API-Football remains authoritative for live matches. Not yet
+   implemented — tracked as the next real increment on this project, not
+   silently worked around by, say, quietly serving 2022-2024 data as if
+   current (which would violate §1's "use real data" requirement in a worse
+   way than an honestly-empty section would).
+

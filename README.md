@@ -123,11 +123,17 @@ assuming fixture-based tests were enough.
   gateway + real `ws` clients, covering snapshot delivery, multi-client
   fan-out from one Redis publish, and unsubscribe actually stopping
   delivery.
-- **The Next.js frontend** renders real data end to end (home page,
-  match detail, timeline, statistics), and the staleness banner (ADR-004)
-  was seen firing for real, not just unit-tested. It does not yet consume
-  the WebSocket gateway (still polls via TanStack Query) — wiring the
-  frontend to `/ws` is the natural next increment, not yet done.
+- **The Next.js frontend now consumes the WebSocket gateway directly** —
+  `useMatchSocket` writes straight into the same TanStack Query cache the
+  match-detail page already read from, so REST polling is the fallback
+  (active only while disconnected), not the primary transport. Verified in
+  a real Chrome instance (a throwaway `puppeteer-core` script, not added as
+  a project dependency): real snapshot delivery, and the connection-status
+  indicator rendering correctly — against both `next dev` (where a
+  React-StrictMode double-invoke artifact was chased down and confirmed
+  benign, not a real bug) and a production build (`next start`, one clean
+  connection, no console warnings). See the
+  [ADR-006 frontend integration note](docs/adr/ADR-006-websocket-architecture.md#frontend-integration-note-phase-5-continued-validated-in-a-real-browser).
 
 **What is still not verified**: upcoming fixtures still can't be shown
 from either provider (a harder cross-provider *match*-identity problem,

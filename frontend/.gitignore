@@ -30,8 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — but not the committed templates (LivePulse's own convention,
+# matching backend/.env.example: real secrets are never committed, but a
+# template showing which vars exist must be, or a fresh clone has no way to
+# know what to set).
 .env*
+!.env.local.example
+!.env.example
 
 # vercel
 .vercel

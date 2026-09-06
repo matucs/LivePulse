@@ -134,3 +134,33 @@ Validated two ways:
    pub/sub → gateway → client) firing automatically, with no manual publish
    involved. This is the project's central promise (§3: the browser updates
    without a refresh) proven end to end, not just designed.
+
+## Frontend integration note (Phase 5, continued): validated in a real browser
+
+`frontend/lib/useMatchSocket.ts` writes directly into the same TanStack
+Query cache entries `MatchDetailClient`'s `useQuery` calls already read
+from, so the component didn't need to change beyond wiring the hook in;
+REST polling (`refetchInterval`) becomes the fallback, active only while
+`isConnected` is false.
+
+One real, initially-confusing detail worth recording rather than a caveat
+that quietly disappears in the final write-up: verifying this against a
+real Chrome instance (no browser automation framework was already in this
+project — a throwaway `puppeteer-core` script pointed at the system's
+installed Chrome, run outside the repo, not added as a dependency) showed
+a console error on first load: `WebSocket connection to '.../ws' failed:
+WebSocket is closed before the connection is established.` Traced before
+assuming it was a real bug: Next.js dev mode double-invokes effects
+(React StrictMode) — the first `WebSocket` gets created, then an
+immediate synthetic unmount closes it while still `CONNECTING`, producing
+exactly that browser warning, before a second, real connection opens,
+subscribes, and receives a genuine `match:snapshot`. Confirmed by
+re-running the identical check against a production build (`next start`):
+exactly one connection, no console warning, same working snapshot
+delivery — proving it's a dev-only artifact of React's own double-invoke
+behavior, not a defect a real visitor would ever see. The hook already
+handles this correctly regardless (`closedByCleanup` guards the reconnect
+logic from treating a React-driven cleanup as a real disconnect), so
+nothing needed fixing — this is recorded because chasing down whether a
+console error is real or benign is itself part of the engineering, not
+because there was a bug to report.

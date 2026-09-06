@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/apiClient";
+import { useMatchSocket } from "@/lib/useMatchSocket";
 import { StatusBadge } from "./LiveBadge";
 import { FreshnessIndicator } from "./FreshnessIndicator";
 import { TeamBadge } from "./TeamBadge";
@@ -9,25 +10,33 @@ import { Timeline } from "./Timeline";
 import { StatisticsPanel } from "./StatisticsPanel";
 
 /**
- * §3's match detail page. Polls every 15s while data is live-relevant
- * (Phase 3 mechanism — refetchInterval; Phase 5 swaps this for WebSocket
- * push per docs/adr/ADR-006 without changing anything below this file).
+ * §3's match detail page. Phase 5: WebSocket push (docs/adr/ADR-006) is
+ * now the primary transport — `useMatchSocket` writes directly into these
+ * queries' cache entries, which is what lets this component stay exactly
+ * as it was in Phase 3. REST polling (`refetchInterval`) is the documented
+ * fallback (docs/websocket.md), active only while the socket isn't
+ * connected — matching "never claim freshness that isn't real": if the
+ * push connection is down, this falls back to polling rather than silently
+ * going stale.
  */
 export function MatchDetailClient({ matchId }: { matchId: string }) {
+  const { isConnected } = useMatchSocket(matchId);
+  const pollFallback = isConnected ? false : (15_000 as const);
+
   const matchQuery = useQuery({
     queryKey: ["match", matchId],
     queryFn: () => api.match(matchId),
-    refetchInterval: 15_000,
+    refetchInterval: pollFallback,
   });
   const eventsQuery = useQuery({
     queryKey: ["match", matchId, "events"],
     queryFn: () => api.matchEvents(matchId),
-    refetchInterval: 15_000,
+    refetchInterval: pollFallback,
   });
   const statsQuery = useQuery({
     queryKey: ["match", matchId, "statistics"],
     queryFn: () => api.matchStatistics(matchId),
-    refetchInterval: 15_000,
+    refetchInterval: pollFallback,
   });
 
   if (matchQuery.isLoading) {
@@ -71,7 +80,7 @@ export function MatchDetailClient({ matchId }: { matchId: string }) {
 
         {match.status === "live" || match.status === "halftime" ? (
           <div className="mt-4 flex justify-center">
-            <FreshnessIndicator seconds={match.dataFreshnessSeconds} isStale={match.isStale} />
+            <FreshnessIndicator seconds={match.dataFreshnessSeconds} isStale={match.isStale} live={isConnected} />
           </div>
         ) : null}
       </div>

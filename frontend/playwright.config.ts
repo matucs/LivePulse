@@ -16,9 +16,24 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: false, // shares one backend + one seeded match across the suite — see e2e/fixtures.ts
+  fullyParallel: false,
+  // `fullyParallel: false` only stops tests *within one file* from running
+  // concurrently — Playwright still spins up multiple workers across
+  // *different* files unless told not to, which is exactly what CI's first
+  // real run caught: the live-update and reconnect tests share one backend
+  // + one seeded match (e2e/helpers.ts), and running in different workers
+  // let them race on the same match's Redis pub/sub channel — one test's
+  // socket churn (reconnect) briefly dropped the channel's only local
+  // subscriber right as the other published to it, hitting the exact
+  // no-delivery-guarantee tradeoff ADR-006 already documents, just
+  // triggered by test-suite parallelism, not the product. `workers: 1`
+  // is what actually serializes the whole suite.
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: "list",
+  // "list" alone never writes a report to disk — CI's upload-artifact step
+  // for frontend/playwright-report/ was a silent no-op until this, found
+  // from the first real CI run's own "No files were found" warning.
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: "http://localhost:3000",
     trace: "retain-on-failure",

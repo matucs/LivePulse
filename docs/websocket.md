@@ -52,3 +52,28 @@ regardless.
 | Total concurrent connections (Portfolio Mode) | 500 |
 | Subscriptions per connection | 10 |
 | Heartbeat interval / missed-pong threshold | 30s / 2 missed |
+
+## Implementation (Phase 5) — one deviation from the app-level `pong` above
+
+`src/ws/gateway.ts` implements everything above, with one refinement made
+once real code existed: the heartbeat uses native WebSocket ping/pong
+control frames (`ws.ping()`/the `pong` event), not the app-level
+`{type:"ping"}`/`{type:"pong"}` JSON messages, for actual dead-connection
+detection — browsers reply to protocol-level pings transparently, without
+any client JS needing to do anything, which is what makes it reliable for
+liveness. The app-level `ping`/`pong` messages are still implemented and
+answered (for tooling that prefers an application-visible heartbeat, e.g. a
+debugging client), but they aren't what the server uses to decide a
+connection is dead.
+
+Verified against real, non-synthetic data (not just the integration test
+below): a real goal (`MATCH_SCORE_CHANGED`, 1-0 → 2-0) and several real
+synthetic halftime events flowed automatically through the full chain —
+ingestion → Kafka → `scores`/`alerts` consumers → Redis pub/sub →
+`WebSocketGateway` → a connected `ws` client — with no manual intervention,
+during real-key validation. See the
+[ADR-006 Phase 5 note](adr/ADR-006-websocket-architecture.md#phase-5-implementation-note-verified-against-real-data)
+and `test/integration/websocketGateway.test.ts` (a real `http.Server` +
+gateway + Postgres/Redis + real `ws` clients — snapshot delivery,
+multi-client fan-out from one Redis publish, unsubscribe actually stopping
+delivery, and the not-found/ping paths).

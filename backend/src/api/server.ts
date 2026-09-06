@@ -15,6 +15,7 @@ import { startScoresConsumer } from "../events/consumers/scoresConsumer.js";
 import { startStatsConsumer } from "../events/consumers/statsConsumer.js";
 import { startAlertsConsumer } from "../events/consumers/alertsConsumer.js";
 import { startNotificationStubConsumer } from "../events/consumers/notificationStubConsumer.js";
+import { WebSocketGateway } from "../ws/gateway.js";
 import { matchRoutes } from "./routes/matches.js";
 import { leagueRoutes } from "./routes/leagues.js";
 import { opsRoutes } from "./routes/ops.js";
@@ -38,6 +39,7 @@ await app.register(opsRoutes);
 
 let scheduler: PollingScheduler | undefined;
 let eventBus: EventBus | undefined;
+let wsGateway: WebSocketGateway | undefined;
 
 /**
  * docs/adr/ADR-003 — same transport-selection pattern as ADR-008 describes:
@@ -66,6 +68,11 @@ async function buildEventBus(): Promise<EventBus | undefined> {
 async function start(): Promise<void> {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
   logger.info({ port: env.PORT }, "LivePulse backend listening");
+
+  // Phase 5, ADR-006 — shares the same HTTP server/port as the REST API
+  // (Portfolio Mode's one-process design, ADR-008), upgraded at /ws.
+  wsGateway = new WebSocketGateway(app.server, pool, redis, env.REDIS_URL);
+  wsGateway.start();
 
   eventBus = await buildEventBus();
   if (eventBus) {
@@ -118,6 +125,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "Shutting down");
   scheduler?.stop();
   await eventBus?.stop();
+  await wsGateway?.stop();
   await app.close();
   await pool.end();
   redis.disconnect();

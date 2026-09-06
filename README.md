@@ -53,14 +53,14 @@ are real and working, not simulated.
 - [x] **Phase 2 — Architecture.** Domain model, Kafka topics, DB schema, caching strategy, WebSocket design, deployment architecture, ADR-002–008. ✅ Done — see [architecture.md](docs/architecture.md).
 - [x] **Phase 3 — MVP.** Ingestion → PostgreSQL → Redis → Next.js. ✅ Done and validated against real API-Football + football-data.org keys (see "What's actually verified" below) — not just fixture-based unit tests.
 - [x] **Phase 4 — Kafka.** Domain events, consumers, topics. ✅ Done — real Kafka locally (Docker Compose), verified against real match data flowing through all 4 consumer groups; see [ADR-003's Phase 4 addendum](docs/adr/ADR-003-kafka-architecture.md#addendum-2026-09-06-phase-4-what-kafkas-consumers-actually-do-once-real-code-existed).
-- [ ] **Phase 5 — WebSockets.** Real-time browser updates.
+- [x] **Phase 5 — WebSockets.** Real-time browser updates. ✅ Done — a real goal and several real halftime events flowed automatically end to end (ingestion → Kafka → consumers → Redis pub/sub → gateway → client) with no manual intervention; see [ADR-006's Phase 5 note](docs/adr/ADR-006-websocket-architecture.md#phase-5-implementation-note-verified-against-real-data).
 - [ ] **Phase 6 — Observability.** Metrics, logging, tracing.
 - [ ] **Phase 7 — Testing.** Unit, integration, E2E.
 - [ ] **Phase 8 — AI features.** Match summaries, analysis, Q&A (clearly separated from the core pipeline).
 - [ ] **Phase 9 — Deployment.** Portfolio mode, €0/month.
 - [ ] **Phase 10 — Case study.** Final write-up + engineering self-review.
 
-## What's actually verified (Phases 3–4)
+## What's actually verified (Phases 3–5)
 
 Stated plainly, because a claim like "the MVP works" is worth nothing
 without saying what was actually checked — and because this project found
@@ -100,6 +100,15 @@ assuming fixture-based tests were enough.
   than hiding (`sports.statistics.updated` never fires yet — live-tier
   polling doesn't fetch per-team stats at all, a pre-existing Phase 3 scope
   gap, not a Phase 4 defect).
+- **The WebSocket gateway's central promise was proven with a real goal**
+  (Phase 5): while the real ingestion pipeline was running, a client
+  subscribed to a batch of live matches received an actual
+  `MATCH_SCORE_CHANGED` (1-0 → 2-0) and several real halftime events,
+  automatically, through the full chain — ingestion → Kafka →
+  `scores`/`alerts` consumers → Redis pub/sub → gateway → client — with no
+  manual publish involved. This is §3's "the browser updates without a
+  refresh" proven end to end, not just designed. See the
+  [ADR-006 Phase 5 note](docs/adr/ADR-006-websocket-architecture.md#phase-5-implementation-note-verified-against-real-data).
 
 **Also verified (fixture-based, no live key needed):**
 - **52 unit tests** (`backend/test/unit`) cover provider mapping, change
@@ -110,16 +119,22 @@ assuming fixture-based tests were enough.
   deterministic, no real backoff delays.
 - **Integration tests** (`backend/test/integration`, `npm run
   test:integration`) run against real Postgres and Redis containers, not
-  mocks.
+  mocks — including `websocketGateway.test.ts`: a real `http.Server` +
+  gateway + real `ws` clients, covering snapshot delivery, multi-client
+  fan-out from one Redis publish, and unsubscribe actually stopping
+  delivery.
 - **The Next.js frontend** renders real data end to end (home page,
   match detail, timeline, statistics), and the staleness banner (ADR-004)
-  was seen firing for real, not just unit-tested.
+  was seen firing for real, not just unit-tested. It does not yet consume
+  the WebSocket gateway (still polls via TanStack Query) — wiring the
+  frontend to `/ws` is the natural next increment, not yet done.
 
-**What is still not verified**: the WebSocket gateway doesn't exist yet
-(Phase 5) — the Redis pub/sub channels the Kafka consumers publish to
-(`ws:match:{id}`) currently have no subscriber. Upcoming fixtures still
-can't be shown from either provider (a harder cross-provider *match*-
-identity problem, deliberately deferred — see the ADR-002 addendum).
+**What is still not verified**: upcoming fixtures still can't be shown
+from either provider (a harder cross-provider *match*-identity problem,
+deliberately deferred — see the ADR-002 addendum). WebSocket connection
+limits (500 global / 5 per IP) are implemented per ADR-006 but haven't been
+load-tested against real concurrent connections yet — that's Phase 6+
+territory (§20's synthetic load-testing tool).
 
 ## Documentation map
 

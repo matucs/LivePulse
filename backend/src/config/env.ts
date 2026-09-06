@@ -38,6 +38,12 @@ const schema = z.object({
     .default("localhost:9092")
     .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
 
+  // docs/adr/ADR-006 / docs/websocket.md — Portfolio Mode defaults.
+  WS_MAX_CONNECTIONS: z.coerce.number().default(500),
+  WS_MAX_CONNECTIONS_PER_IP: z.coerce.number().default(5),
+  WS_MAX_SUBSCRIPTIONS_PER_CONNECTION: z.coerce.number().default(10),
+  WS_HEARTBEAT_INTERVAL_MS: z.coerce.number().default(30_000),
+
   // ADR-002 polling tiers, all overridable.
   LIVE_POLL_INTERVAL_MS: z.coerce.number().default(240_000), // 4 min
   PREMATCH_POLL_INTERVAL_MS: z.coerce.number().default(300_000), // 5 min

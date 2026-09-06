@@ -108,3 +108,29 @@ per-client, it broadcasts once to its local subscriber set per message.
   scaling ceiling (see [scalability.md](../scalability.md)) — Production
   Mode would need a load balancer with sticky sessions or a
   connection-routing layer in front of multiple gateway instances.
+
+## Phase 5 implementation note: verified against real data
+
+Built as `src/ws/gateway.ts`, sharing the Fastify HTTP server's port at
+`/ws` (Portfolio Mode's one-process design, ADR-008). One deviation from
+the protocol doc worth recording here rather than only in
+[websocket.md](../websocket.md): the heartbeat uses native WebSocket
+ping/pong control frames for actual liveness detection, not the app-level
+`{type:"ping"}` JSON message (still implemented and answered, for tooling
+that wants an application-visible heartbeat, but not what decides a
+connection is dead) — native frames are simpler and more reliable since
+browsers answer them transparently without any client code.
+
+Validated two ways:
+1. **`test/integration/websocketGateway.test.ts`** — a real `http.Server` +
+   gateway + real Postgres/Redis + real `ws` clients: snapshot delivery,
+   fan-out from one Redis `PUBLISH` to two local clients on the same match,
+   unsubscribe actually stopping delivery, and the not-found/ping paths.
+2. **Against real, non-synthetic API-Football data**: with the actual
+   ingestion pipeline running (Phase 3/4), a client subscribed to a batch
+   of currently-live matches received a real `MATCH_SCORE_CHANGED` event
+   (an actual 1-0 → 2-0 goal) and several real synthetic halftime events —
+   the full chain (ingestion → Kafka → `scores`/`alerts` consumers → Redis
+   pub/sub → gateway → client) firing automatically, with no manual publish
+   involved. This is the project's central promise (§3: the browser updates
+   without a refresh) proven end to end, not just designed.

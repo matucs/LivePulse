@@ -74,19 +74,35 @@ KAFKA_BROKERS=localhost:9092
 LIVE_POLL_INTERVAL_MS=240000
 ```
 
-## Portfolio Mode (public, €0/month)
+## Portfolio Mode (public, €0/month) — as actually deployed
+
+Northflank and Render both turned out to require a card to actually create
+a service (not just to sign up) when this was deployed for real — see the
+[ADR-008 addendum](adr/ADR-008-free-deployment-strategy.md#addendum-2026-09-09-what-actually-happened-when-this-was-deployed-for-real)
+for the full story. The real, live topology:
 
 | Component | Where | Setup |
 |---|---|---|
-| Frontend | Vercel | Connect repo, set `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_WS_URL` to the Northflank backend's public URL |
-| Backend (API + WS gateway + ingestion) | Northflank free Sandbox | One always-on service from the same backend image used locally, `EVENT_BUS_DRIVER=redis-streams` instead of `kafka` |
-| Postgres | Neon free tier | Connection string in `DATABASE_URL`; scale-to-zero is acceptable since the backend itself is always-on and keeps a connection warm |
-| Redis | Upstash free tier | `REDIS_URL` (or Upstash's REST/HTTP variant, which works well from environments without persistent TCP) — used both for caching (ADR-004) and as the Redis Streams `EventBus` (ADR-003) |
-| Sports data | API-Football | `API_FOOTBALL_KEY`, never exposed to the frontend (§24) |
+| Frontend | Vercel | Deployed via `vercel --prod` (GitHub App auth needs an interactive OAuth step the CLI/API token doesn't cover — deploy-on-push isn't wired up yet, a documented gap); `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_WS_URL` set as production env vars pointing at the backend below |
+| Backend (API + WS gateway + ingestion) | **Oracle Cloud Always Free** Ampere A1 VM (Ubuntu 24.04 ARM64), Docker + [Caddy](https://caddyserver.com/) reverse proxy | `docker build`/`docker run --restart unless-stopped` from the same `backend/Dockerfile` used locally; Caddy terminates TLS automatically via Let's Encrypt against a free `nip.io` domain mapped to the VM's public IP (no purchased domain needed) and reverse-proxies to `localhost:4000`; `EVENT_BUS_DRIVER=redis-streams` |
+| Postgres | Neon free tier | `DATABASE_URL` in `.env.production` on the VM; migrations run automatically on container boot (the Dockerfile's `CMD`) |
+| Redis | Upstash free tier | `REDIS_URL` using `rediss://` (TLS) — Upstash requires TLS on its standard port; used both for caching (ADR-004) and as the Redis Streams `EventBus` (ADR-003) |
+| Sports data | API-Football + football-data.org | Both keys in `.env.production` on the VM only, never exposed to the frontend (§24) |
 
-Environment variables are the only thing that differ from local dev besides
-`EVENT_BUS_DRIVER` — same backend image, same schema, same topic/consumer
-design (ADR-003), running on a different transport.
+Two real gotchas hit during the actual VM setup, worth flagging for
+anyone repeating this: (1) Oracle Ubuntu images have their **own** iptables
+rules blocking everything but SSH by default — opening ports in Oracle's
+cloud-level Security List is necessary but not sufficient, the VM's local
+firewall needs the same ports opened too; (2) it's easy to enter a Security
+List rule with source/destination ports swapped (`Destination Port Range:
+All` instead of the actual port) — it passes the console's validation
+silently, so verify with a real external connectivity test
+(`bash -c 'cat < /dev/null > /dev/tcp/<ip>/<port>'`), not just by re-reading
+the rule.
+
+Environment variables (plus `EVENT_BUS_DRIVER`) are the only thing that
+differ from local dev — same backend image, same schema, same
+topic/consumer design (ADR-003), running on a different transport.
 
 ## What is explicitly not deployed publicly
 

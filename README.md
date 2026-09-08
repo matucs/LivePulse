@@ -12,6 +12,8 @@ and Kafka (internal event backbone).
 This is a portfolio engineering project designed to also be a credible
 foundation for a real product, and is documented as such throughout `docs/`.
 
+**🔴 Live**: [livepulse-ten.vercel.app](https://livepulse-ten.vercel.app) — real production deployment, real live data, not a local demo. Engineering ops dashboard at [/ops](https://livepulse-ten.vercel.app/ops).
+
 ## Data source
 
 Live match data comes from **[API-Football](https://www.api-football.com/)**.
@@ -57,7 +59,7 @@ are real and working, not simulated.
 - [x] **Phase 6 — Observability.** Metrics, logging, tracing. ✅ Done — every §21 metric wired to a real call site (not stubbed), verified against real data including a Kafka admin-API lag query and a real Jaeger trace; a real ioredis-instrumentation compatibility gap found and documented rather than papered over. See [docs/observability.md](docs/observability.md) and the new [Engineering Dashboard](frontend/app/ops/page.tsx) (`/ops`).
 - [x] **Phase 7 — Testing.** Unit, integration, E2E. ✅ Done — real E2E via Playwright found and fixed a genuine UX bug (see below); a real, previously-untested `RedisStreamsEventBus` (the actual Portfolio Mode transport) got its first automated coverage and a real latent bug fix along with it. CI wired in [.github/workflows/ci.yml](.github/workflows/ci.yml) — validated command-by-command against real infrastructure, honestly not yet run on a real GitHub Actions execution (no remote configured).
 - [ ] **Phase 8 — AI features.** Match summaries, analysis, Q&A (clearly separated from the core pipeline).
-- [ ] **Phase 9 — Deployment.** Portfolio mode, €0/month.
+- [x] **Phase 9 — Deployment.** Portfolio mode, €0/month. ✅ Done, but not the way originally planned — see the [ADR-008 addendum](docs/adr/ADR-008-free-deployment-strategy.md#addendum-2026-09-09-what-actually-happened-when-this-was-deployed-for-real): both platforms this project's own research called "cardless" (Northflank, Render) actually required a card to deploy a service, not just to sign up. Real, live now on Vercel + a self-managed Oracle Cloud Always Free VM instead.
 - [ ] **Phase 10 — Case study.** Final write-up + engineering self-review.
 
 ## What's actually verified (Phases 3–7)

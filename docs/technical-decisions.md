@@ -70,9 +70,10 @@ Two concrete product decisions:
 - **Non-commercial framing:** the running app carries a visible footer
   disclaimer (drafted below) so the ToS boundary from ADR-001 is honored in
   the product itself, not just in docs no visitor sees.
-- **CI badge:** once GitHub Actions exists (Phase 7), the README gets a real
-  build-status badge. Not added before there's a real workflow behind it —
-  a badge with nothing running behind it is worse than no badge.
+- **CI badge:** ✅ added (Phase 9) once `.github/workflows/ci.yml` had
+  actually run green against real GitHub Actions infrastructure, not just
+  validated locally — not added before there's a real workflow behind it,
+  since a badge with nothing running behind it is worse than no badge.
 
 ### Draft footer disclaimer copy (for frontend, Phase 3+)
 

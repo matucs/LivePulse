@@ -142,6 +142,10 @@ Deploy-on-merge (Vercel for the frontend, Northflank for the backend) is
 still a Phase 9 item, not built in Phase 7 — CI here covers verification,
 not deployment.
 
-A real CI badge is added to the README once this workflow exists and is
-green — not before (see
+✅ The README's CI badge was added in Phase 9, once this workflow had
+actually run green on real GitHub Actions infrastructure (see
 [technical-decisions.md §3](technical-decisions.md#3-security--credibility-hygiene)).
+Deploy-on-push (Vercel/Oracle VM) is still not wired up — see the
+[ADR-008 addendum](adr/ADR-008-free-deployment-strategy.md#addendum-2026-09-09-what-actually-happened-when-this-was-deployed-for-real)
+for why (Vercel's GitHub App needs an interactive OAuth step this session
+couldn't complete via API token alone).

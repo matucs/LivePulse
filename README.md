@@ -1,5 +1,7 @@
 # LivePulse
 
+[![CI](https://github.com/matucs/LivePulse/actions/workflows/ci.yml/badge.svg)](https://github.com/matucs/LivePulse/actions/workflows/ci.yml)
+
 > Real-Time Sports Intelligence Platform
 
 A continuously running, event-driven sports data platform built on real

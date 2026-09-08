@@ -1,7 +1,8 @@
-import type { Standing, Team } from "../../domain/types.js";
+import type { League, MappedFixture, Standing, Team } from "../../domain/types.js";
 import type { TeamCandidate } from "../../domain/teamNameMatch.js";
 import { findMatchingTeam } from "../../domain/teamNameMatch.js";
 import { deriveId } from "../../domain/deriveId.js";
+import { PROVIDER_CODE as API_FOOTBALL_PROVIDER_CODE } from "./fixtureMapper.js";
 import type { FootballDataStandingsResponse } from "./footballDataTypes.js";
 import { logger } from "../../utils/logger.js";
 
@@ -9,6 +10,22 @@ export const PROVIDER_CODE = "football-data" as const;
 
 export interface StandingsMappingResult {
   standings: Standing[];
+  /**
+   * Found the hard way, on a genuinely fresh database (Portfolio Mode
+   * deployment, ADR-008): `pollStandings` (ingestionService.ts) runs
+   * independently of live-match ingestion, so on a brand-new install where
+   * no live match for this league has ever been polled yet, `leagues` and
+   * `seasons` rows for it simply don't exist — writing standings then hits
+   * a foreign key violation. This never surfaced against a long-running
+   * dev database that had already accumulated that data from hours of
+   * unrelated live polling. `league`/`season` here use API-Football's own
+   * identity (`deriveId`/`deriveSeasonId` — the *same* ids ingestFixture
+   * would derive for the same league), borrowing football-data.org's
+   * `competition.name` only as a display-name source until API-Football's
+   * own ingestion overwrites it — never a football-data-scoped identity.
+   */
+  league: League;
+  season: MappedFixture["season"];
   /**
    * Teams that couldn't be reconciled to an existing API-Football-sourced
    * team by name (domain/teamNameMatch.ts) — typically because that
@@ -43,11 +60,24 @@ export interface StandingsMappingResult {
  */
 export function mapStandings(
   response: FootballDataStandingsResponse,
+  leagueExternalId: string,
   seasonId: string,
+  seasonYear: number,
   candidates: TeamCandidate[],
 ): StandingsMappingResult {
+  const leagueId = deriveId(API_FOOTBALL_PROVIDER_CODE, "league", leagueExternalId);
+  const league: League = {
+    id: leagueId,
+    providerId: API_FOOTBALL_PROVIDER_CODE,
+    externalId: leagueExternalId,
+    sportCode: "football",
+    name: response.competition.name,
+    type: "league",
+  };
+  const season: MappedFixture["season"] = { id: seasonId, leagueId, label: String(seasonYear) };
+
   const total = response.standings.find((g) => g.type === "TOTAL");
-  if (!total) return { standings: [], newTeams: [] };
+  if (!total) return { standings: [], newTeams: [], league, season };
 
   const standings: Standing[] = [];
   const newTeams: Team[] = [];
@@ -86,5 +116,5 @@ export function mapStandings(
       form: row.form ?? undefined,
     });
   }
-  return { standings, newTeams };
+  return { standings, newTeams, league, season };
 }

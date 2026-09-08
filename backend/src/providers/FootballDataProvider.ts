@@ -74,6 +74,7 @@ export class FootballDataProvider {
   async getStandings(
     leagueExternalId: string,
     seasonId: string,
+    seasonYear: number,
     candidates: TeamCandidate[],
   ): Promise<StandingsMappingResult> {
     const code = API_FOOTBALL_TO_FOOTBALL_DATA_CODE[leagueExternalId];
@@ -139,6 +140,6 @@ export class FootballDataProvider {
       },
     );
 
-    return mapStandings(data, seasonId, candidates);
+    return mapStandings(data, leagueExternalId, seasonId, seasonYear, candidates);
   }
 }

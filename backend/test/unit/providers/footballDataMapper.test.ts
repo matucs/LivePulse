@@ -67,12 +67,12 @@ describe("mapStandings (football-data.org)", () => {
   ];
 
   it("maps only the TOTAL table, ignoring HOME/AWAY splits", () => {
-    const { standings } = mapStandings(buildResponse(), "season-1", candidates);
+    const { standings } = mapStandings(buildResponse(), "39", "season-1", 2026, candidates);
     expect(standings.every((r) => r.rank !== 99)).toBe(true);
   });
 
   it("reconciles a team by normalized name to the caller-supplied candidate's internal id", () => {
-    const { standings, newTeams } = mapStandings(buildResponse(), "season-1", candidates);
+    const { standings, newTeams } = mapStandings(buildResponse(), "39", "season-1", 2026, candidates);
     const manCity = standings.find((r) => r.points === 23);
     expect(manCity?.teamId).toBe("internal-man-city");
     expect(manCity?.seasonId).toBe("season-1");
@@ -82,12 +82,21 @@ describe("mapStandings (football-data.org)", () => {
   });
 
   it("creates a football-data.org-sourced team, rather than dropping the row, when no candidate reconciles", () => {
-    const { standings, newTeams } = mapStandings(buildResponse(), "season-1", candidates);
+    const { standings, newTeams } = mapStandings(buildResponse(), "39", "season-1", 2026, candidates);
     const bayern = standings.find((r) => r.points === 21);
     expect(bayern).toBeDefined(); // not silently dropped
     expect(bayern?.teamId).toBeTruthy();
 
     const newTeam = newTeams.find((t) => t.id === bayern?.teamId);
     expect(newTeam).toMatchObject({ providerId: "football-data", externalId: "99", name: "FC Bayern München" });
+  });
+
+  it("returns a league/season under API-Football's own identity, not a football-data-scoped one — found via a real fresh-database FK violation", () => {
+    // pollStandings runs independently of live-match ingestion; on a
+    // brand-new database this league's leagues/seasons rows may not exist
+    // yet (ingestionService.ts's comment on this call site has the story).
+    const { league, season } = mapStandings(buildResponse(), "39", "season-1", 2026, candidates);
+    expect(league).toMatchObject({ providerId: "api-football", externalId: "39", name: "Premier League" });
+    expect(season).toMatchObject({ id: "season-1", leagueId: league.id, label: "2026" });
   });
 });

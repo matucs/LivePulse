@@ -152,7 +152,7 @@ export async function pollStandings(
   let result;
   try {
     const candidates = await getAllKnownTeams(deps.pool);
-    result = await deps.standingsProvider.getStandings(leagueExternalId, seasonId, candidates);
+    result = await deps.standingsProvider.getStandings(leagueExternalId, seasonId, seasonYear, candidates);
   } catch (err) {
     if (err instanceof ProviderQueryRejectedError) {
       logger.warn({ reasons: err.reasons }, "Provider rejected standings query for this plan — skipping tier");
@@ -164,6 +164,14 @@ export async function pollStandings(
   }
 
   await withTransaction(async (client) => {
+    // Found on a genuinely fresh database (Portfolio Mode deployment,
+    // ADR-008): standings polling runs independently of live-match
+    // ingestion, so on a brand-new install this league's `leagues`/
+    // `seasons` rows may not exist yet — ensured here, not assumed, before
+    // anything that references them (see StandingsMappingResult's doc
+    // comment in footballDataMapper.ts).
+    await upsertLeague(client, result.league);
+    await ensureSeason(client, result.season);
     // Unreconciled teams (footballDataMapper's doc comment explains why
     // this is the common case, not rare) must exist before the standings
     // rows referencing them — teams.id is a foreign key on standings.

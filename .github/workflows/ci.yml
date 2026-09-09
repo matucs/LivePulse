@@ -153,11 +153,11 @@ jobs:
       # Playwright's webServer config (playwright.config.ts) to attach to.
       - run: npm ci
         working-directory: frontend
-      # playwright.config.ts uses channel:"chrome" (the real Google Chrome,
-      # not Playwright's bundled Chromium) — this installs that specific
-      # channel, matching what runs locally against this environment's
-      # system-installed Chrome.
-      - run: npx playwright install --with-deps chrome
+      # Playwright's own bundled Chromium — not channel:"chrome" (real
+      # Google Chrome), which depends on Google's apt repo and served a
+      # stale, hash-mismatched package index two real CI runs in a row.
+      # Slower download, no external repo dependency to go stale.
+      - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend

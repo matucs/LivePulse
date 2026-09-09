@@ -2,10 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * §25's E2E requirement — match page, live update, WebSocket reconnect,
- * error states. Uses the system's installed Chrome (`channel: "chrome"`)
- * rather than downloading Playwright's own ~300MB bundled browser, since a
- * real Chrome is already present in this environment and in most CI
- * runners' base images.
+ * error states. Uses Playwright's own bundled Chromium, not the system's
+ * installed Chrome (`channel: "chrome"`) — tried that first to skip a
+ * ~300MB download, but CI's first real runs showed it depends on Google's
+ * own Chrome apt repository, which served a stale, hash-mismatched package
+ * index two runs in a row (a real, external, non-transient failure, not
+ * this project's code). Playwright's own CDN has been reliable across the
+ * same runs — one dependency removed, not worked around.
  *
  * Requires the real backend (docker compose up + `npm run dev` in
  * backend/) already running on :4000 — these tests exercise the actual
@@ -41,7 +44,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], channel: "chrome" },
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
   webServer: {

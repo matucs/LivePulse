@@ -48,7 +48,12 @@ test("§25 live update: a real backend push updates the score with no page refre
   // can't pass by coincidence.
   await publishMatchUpdate(matchId, { homeScore: 17, awayScore: 4 });
 
-  await expect(page.getByText("17", { exact: true })).toBeVisible({ timeout: 5_000 });
+  // 10s, matching the reconnect test's own margin below — a freshly
+  // downloaded, cold-started browser on a shared CI runner has more
+  // scheduling jitter than a warm local one; the mechanism itself (proven
+  // by this same test passing consistently, just occasionally past 5s in
+  // CI) isn't in question, only how much margin a CI runner needs.
+  await expect(page.getByText("17", { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("4", { exact: true })).toBeVisible();
 });
 

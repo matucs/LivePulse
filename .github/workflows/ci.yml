@@ -155,9 +155,18 @@ jobs:
         working-directory: frontend
       # Playwright's own bundled Chromium — not channel:"chrome" (real
       # Google Chrome), which depends on Google's apt repo and served a
-      # stale, hash-mismatched package index two real CI runs in a row.
-      # Slower download, no external repo dependency to go stale.
-      - run: npx playwright install --with-deps chromium
+      # stale, hash-mismatched package index. Also deliberately not
+      # --with-deps: that flag runs `apt-get update` across every
+      # system-configured apt source, including Google's Chrome repo —
+      # which is apparently pre-baked into this runner image regardless
+      # of which browser is actually being installed, so --with-deps hit
+      # the exact same broken index a third time even after switching
+      # away from channel:"chrome". GitHub's ubuntu-latest runners already
+      # ship most of Chromium's shared-library dependencies (Chrome itself
+      # is preinstalled on them); if a real gap shows up, the fix is
+      # installing that specific package, not re-adding a blanket flag
+      # that re-triggers the broken update.
+      - run: npx playwright install chromium
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
